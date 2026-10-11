@@ -14,7 +14,7 @@ TIMEOUT_SECONDS = 7_200
 
 app = modal.App("cytearc-docs")
 image = (
-    modal.Image.debian_slim(python_version="3.12")
+    modal.Image.debian_slim(python_version="3.13")
     .apt_install("build-essential", "libfftw3-dev", "libmetis-dev")
     .uv_sync(
         groups=["docs-modal"],

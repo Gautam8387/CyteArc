@@ -156,7 +156,7 @@ def _start_interval(quota: int) -> float:
 HUB_API_QUOTA = _limit("CYTEBASE_HUB_API_QUOTA", 1000)
 DATASET_START_INTERVAL = _start_interval(HUB_API_QUOTA)
 image = (
-    modal.Image.debian_slim(python_version="3.12")
+    modal.Image.debian_slim(python_version="3.13")
     .apt_install(
         "aria2",
         "ca-certificates",

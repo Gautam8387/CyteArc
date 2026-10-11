@@ -127,6 +127,7 @@ def test_prepare_local_datasets_uses_in_memory_path(tmp_path: Path) -> None:
 
 @pytest.fixture
 def sample_preparation(tmp_path, monkeypatch):
+    pytest.importorskip("modal")
     from profiling import app
 
     source = tmp_path / "source.h5ad"

@@ -7,7 +7,7 @@ app = modal.App(MODAL_APP_NAME)
 # The image ships the files profiling.provenance.source_tree_files lists, at the same
 # paths relative to /root, so a run can prove which code it executed.
 image = (
-    modal.Image.debian_slim(python_version="3.12")
+    modal.Image.debian_slim(python_version="3.13")
     .apt_install(
         "build-essential",
         "git",

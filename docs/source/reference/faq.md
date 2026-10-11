@@ -172,5 +172,5 @@ Please open a discussion on GitHub if an R API would be useful.
 
 ## What Python version does CyteArc require?
 
-Python 3.12 or newer (`requires-python >=3.12`).
+Python 3.13 or newer (`requires-python >=3.13`).
 See {ref}`installation <installation>`.

@@ -14,7 +14,7 @@ COPY . /workspace
 
 # t-SNE is optional: add --extra tsne for sgtsnepi, which has wheels for
 # linux/amd64 and must otherwise be compiled with a C++ compiler and FFTW.
-RUN uv python install 3.14 && uv sync --extra extra
+RUN uv python install && uv sync --extra extra
 ENV PATH="/workspace/.venv/bin:$PATH"
 
 RUN echo "export PATH=/workspace/.venv/bin:$PATH" >> /root/.bashrc

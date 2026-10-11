@@ -5,6 +5,8 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("modal")
+
 from profiling import app, stages
 from profiling.config import (
     CORE_STAGE_ORDER,

@@ -5,7 +5,7 @@
   <a href="https://codecov.io/gh/NygenAnalytics/CyteArc"><img src="https://codecov.io/gh/NygenAnalytics/CyteArc/graph/badge.svg" alt="Coverage"></a>
   <a href="https://docs.nygen.io/CyteArc/"><img src="https://img.shields.io/github/actions/workflow/status/NygenAnalytics/CyteArc/pages.yml?label=Documentation" alt="Documentation"></a>
   <a href="https://pypi.org/project/cytearc"><img src="https://img.shields.io/pypi/v/cytearc.svg?color=4c72b0" alt="PyPI"></a>
-  <a href="https://pypi.org/project/cytearc"><img src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-4c72b0.svg" alt="Python 3.12, 3.13, and 3.14"></a>
+  <a href="https://pypi.org/project/cytearc"><img src="https://img.shields.io/badge/python-3.13%20%7C%203.14%20%7C%203.15-4c72b0.svg" alt="Python 3.13, 3.14, and 3.15"></a>
 </p>
 
 
@@ -24,10 +24,10 @@ CyteArc's **built-in provenance** connects saved results to the exact cells, fea
 
 ## Install
 
-Python 3.12+.
+Python 3.13+.
 
 ```bash
-uv venv --python 3.12
+uv venv --python 3.13
 uv pip install --python .venv "cytearc[extra]"
 ```
 

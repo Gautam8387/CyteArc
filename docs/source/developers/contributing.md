@@ -26,7 +26,8 @@ uv sync --group dev --group profiling --extra test --extra extra
 uv run python -m tests.download_fixtures --with-h5ad
 ```
 
-Python 3.12 or newer is required (`requires-python >=3.12`).
+Python 3.13 or newer is required (`requires-python >=3.13`).
+`.python-version` makes 3.13 the default interpreter for `uv sync` and `uv run`, matching the Modal images.
 
 Two markers select the expensive parts of the suite: `slow` for tests that build neighbourhood graphs or run iterative numerical workflows, and `integration` for tests that need live network access.
 While iterating, skip both:
@@ -213,10 +214,10 @@ A dataset needs a matching generated manifest and archive before it can be publi
 Publishing a GitHub release runs `.github/workflows/publish.yml`.
 Every job checks out the exact commit that the release tag named when the release was published (`github.sha`), and the upload to PyPI waits for four gates on that commit:
 
-- `verify` runs the test workflow, `pytest.yml`: the static checks, the visual regression comparison, and the complete suite on Python 3.12, 3.13, and 3.14 and with the lowest direct dependency versions. A release uploads no coverage report.
+- `verify` runs the test workflow, `pytest.yml`: the static checks, the visual regression comparison, and the complete suite on Python 3.13, 3.14, and 3.15 and with the lowest direct dependency versions. A release uploads no coverage report.
 - `docs` runs the documentation workflow, `docs.yml`: the documentation tests, the complete MyST build using committed notebooks, and the nitpicky Sphinx API build with reference coverage. Tutorial execution remains a separate Modal action.
 - `build` first requires the release tag to still name that commit, then builds the wheel and the source distribution from a clean checkout and checks their metadata against the tag.
-- `smoke` runs `tests/smoke_wheel.py` on the built wheel on Linux with Python 3.12, 3.13, and 3.14 and on Windows with Python 3.12.
+- `smoke` runs `tests/smoke_wheel.py` on the built wheel on Linux with Python 3.13, 3.14, and 3.15 and on Windows with Python 3.13.
 
 `tests/smoke_wheel.py` checks that the wheel is pure Python and complete, installs it into a clean environment with `uv venv` and `uv pip install`, imports the public modules from the installed wheel, and runs `tests/smoke_workflow.py` with that environment's interpreter in isolated mode.
 That script imports a synthetic three-population count matrix with `SparseToZarr` and analyzes it with `pipeline.run`; the run must complete, its UMAP coordinates must be finite, and Leiden must find at least two clusters.

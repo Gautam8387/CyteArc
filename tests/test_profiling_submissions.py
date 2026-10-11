@@ -7,6 +7,8 @@ from urllib.parse import urlsplit
 import pytest
 from obstore.store import MemoryStore
 
+pytest.importorskip("modal")
+
 from profiling import app, r2, results
 from profiling.config import CORE_STAGE_ORDER
 from profiling.spawn_wait import await_stage_result

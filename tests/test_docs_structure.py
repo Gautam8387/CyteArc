@@ -173,7 +173,7 @@ def test_public_documentation_does_not_link_to_withheld_agent_pages() -> None:
 def test_installation_uses_one_environment_for_install_and_runtime() -> None:
     contents = (_DOCS_SOURCE / "installation.md").read_text()
 
-    assert "uv venv --python 3.12" in contents
+    assert "uv venv --python 3.13" in contents
     # Importing DataStore loads the modules that a bare import cytearc defers.
     assert (
         'python -c "from cytearc import DataStore; import cytearc; '

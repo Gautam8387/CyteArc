@@ -3,6 +3,7 @@ recursive-exclude * *.pyc
 recursive-exclude * *.pyo
 exclude .gitignore
 exclude .gitattributes
+exclude .python-version
 exclude .readthedocs.yml
 exclude Dockerfile
 prune docs

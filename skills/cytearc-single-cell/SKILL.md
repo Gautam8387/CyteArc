@@ -2,7 +2,7 @@
 name: cytearc-single-cell
 description: Analyze single-cell data with core CyteArc, the out-of-core Zarr DataStore library with immutable artifacts and pipeline runs. Covers opening, converting and mounting stores (including CyteBase datasets), QC with removal audits, HVG/PCA/neighbour graphs, Leiden/Paris clustering, UMAP, markers and cautious annotation, batch correction and donor-level comparisons, headless plotting, provenance and export. Use when a task involves a CyteArc .zarr store, a CyteBase dataset, cytearc.DataStore, ds.pipeline, or converting H5AD/10x/MTX/Seurat data for CyteArc. Does not cover cytearc.agent (the automated agent package).
 license: BSD-3-Clause
-compatibility: Requires Python 3.12+ and cytearc 1.0.0rc1 or newer (pip install "cytearc[extra]>=1.0.0rc1"; add the cytebase extra and network access for CyteBase datasets, and the tsne extra for t-SNE).
+compatibility: Requires Python 3.13+ and cytearc 1.0.0rc1 or newer (pip install "cytearc[extra]>=1.0.0rc1"; add the cytebase extra and network access for CyteBase datasets, and the tsne extra for t-SNE).
 metadata:
   version: "0.4"
 ---

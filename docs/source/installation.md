@@ -1,7 +1,7 @@
 (installation)=
 # Installation
 
-CyteArc requires Python 3.12 or newer (`requires-python >=3.12`).
+CyteArc requires Python 3.13 or newer (`requires-python >=3.13`).
 
 ## Compiler requirement
 
@@ -24,7 +24,7 @@ sudo apt install python3-dev python3-venv
 ```
 
 The unversioned packages match the distribution's default `python3`.
-For a separately installed system interpreter, install the matching packages, such as `python3.12-dev` and `python3.12-venv`.
+For a separately installed system interpreter, install the matching packages, such as `python3.13-dev` and `python3.13-venv`.
 A uv-managed Python already includes its development headers and virtual-environment support.
 
 ## Recommended: uv environment
@@ -33,7 +33,7 @@ Run these commands in the directory where you will work.
 [uv](https://docs.astral.sh/uv/) creates an isolated `.venv` so CyteArc does not modify the system Python:
 
 ```bash
-uv venv --python 3.12
+uv venv --python 3.13
 ```
 
 Activate the environment on macOS or Linux:
@@ -67,7 +67,7 @@ python -c "from cytearc import DataStore; import cytearc; print(cytearc.__versio
 
 ## Alternative: pip environment
 
-If uv is unavailable, first confirm that `python` is version 3.12 or newer, then create and activate a standard virtual environment:
+If uv is unavailable, first confirm that `python` is version 3.13 or newer, then create and activate a standard virtual environment:
 
 ```bash
 python -m venv .venv
@@ -86,7 +86,7 @@ python -c "from cytearc import DataStore; import cytearc; print(cytearc.__versio
 This path installs a prebuilt `hnswlib` from conda-forge and is recommended on Windows when Visual C++ Build Tools are unavailable:
 
 ```bash
-conda create --name cytearc_env --channel conda-forge python=3.12 pip "hnswlib>=0.8"
+conda create --name cytearc_env --channel conda-forge python=3.13 pip "hnswlib>=0.8"
 conda activate cytearc_env
 python -m pip install --pre "cytearc[extra]"
 python -c "from cytearc import DataStore; import cytearc; print(cytearc.__version__)"

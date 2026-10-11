@@ -33,7 +33,7 @@ These instructions apply to the whole repository.
 
 ## Source and conventions
 
-- Python 3.12 or newer is required. Use `uv` for every Python command and dependency change.
+- Python 3.13 or newer is required. Use `uv` for every Python command and dependency change.
 - Preserve unrelated working-tree changes. Trace callers and tests before changing a public
   function or persisted result.
 - Use built-in generics and `X | None`. Do not add `typing.List`,
