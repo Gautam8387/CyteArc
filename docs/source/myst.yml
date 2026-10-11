@@ -60,7 +60,7 @@ project:
       title: TEA-seq
     - file: tutorials/multimodal_diagnostics.ipynb
       title: WNN and SNN integration
-    - file: tutorials/hto_demultiplexing.md
+    - file: tutorials/hto_demultiplexing.ipynb
       title: HTO demultiplexing
   - title: Integration and mapping
     children:

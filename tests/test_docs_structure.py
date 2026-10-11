@@ -105,7 +105,7 @@ def test_navigation_prioritizes_remote_workflows_and_preserves_tutorials() -> No
         "tutorials/cite_seq.ipynb",
         "tutorials/tea_seq.ipynb",
         "tutorials/multimodal_diagnostics.ipynb",
-        "tutorials/hto_demultiplexing.md",
+        "tutorials/hto_demultiplexing.ipynb",
     } <= modalities
 
     published = _toc_files(toctree)
