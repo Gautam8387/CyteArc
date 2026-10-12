@@ -1052,6 +1052,52 @@ def test_early_close_joins_the_producer_and_surfaces_its_failure() -> None:
 
 
 @pytest.mark.parametrize("ordered", [False, True])
+@pytest.mark.parametrize("mapper_name", ["read_groups", "cell_bands"])
+def test_feature_stream_reports_failure_once_before_group_callback(
+    monkeypatch, ordered, mapper_name
+) -> None:
+    import asyncio
+    import types
+
+    import cytearc.storage.feature_stream as feature_stream
+
+    counts_t = _counts_t_with_plan(np.arange(960, dtype=np.uint16).reshape(40, 24))
+    delayed = []
+    failure = RuntimeError("feature callback failed")
+
+    class DelayedTaskGroup(asyncio.TaskGroup):
+        def _on_task_done(self, task):
+            if not task.cancelled() and task.exception() is not None:
+                # Let asyncio.wait resume before TaskGroup handles the failure.
+                delayed.append(task.exception())
+                loop = asyncio.get_running_loop()
+                loop.call_soon(loop.call_soon, super()._on_task_done, task)
+            else:
+                super()._on_task_done(task)
+
+    patched_asyncio = types.SimpleNamespace(**vars(asyncio))
+    patched_asyncio.TaskGroup = DelayedTaskGroup
+    monkeypatch.setattr(feature_stream, "asyncio", patched_asyncio)
+
+    def process(item):
+        raise failure
+
+    mapper = getattr(feature_stream, f"map_feature_{mapper_name}")
+    with pytest.raises(RuntimeError, match="feature callback failed") as caught:
+        list(
+            mapper(
+                counts_t,
+                process,
+                resources=ResourceBudget(8 * 1024**2, 2),
+                io=StorageIoPolicy(readWorkers=1),
+                orderedCompute=ordered,
+            )
+        )
+    assert caught.value is failure
+    assert delayed == [failure]
+
+
+@pytest.mark.parametrize("ordered", [False, True])
 def test_stream_closes_when_a_unit_starts_after_stop(monkeypatch, ordered) -> None:
     import asyncio
     import types

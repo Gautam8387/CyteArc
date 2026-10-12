@@ -783,12 +783,10 @@ def stream_units(
                         break
                     pending.add(tasks.create_task(one_unit(idx, unit)))
                     if len(pending) >= in_flight:
-                        done, pending = await asyncio.wait(
+                        _, pending = await asyncio.wait(
                             pending,
                             return_when=asyncio.FIRST_COMPLETED,
                         )
-                        for completed in done:
-                            completed.result()
 
         runner = AsyncStorageRunner(operation=plan)
         try:
