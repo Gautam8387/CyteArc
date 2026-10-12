@@ -2193,20 +2193,27 @@ def test_process_run_is_blocked_when_a_worker_outcome_is_unknown(
 def _periodic_run(modal_harness, monkeypatch, *, fail_update: bool):
     """Process two datasets; the first takes over a minute, the second waits.
 
-    The second dataset finishes only after the orchestrator publishes the
-    first one's record, so a periodic catalog update must happen in between.
+    The first dataset's minute passes only once the second dataset is running,
+    so the minute tick finds one dataset running and none queued. The second
+    dataset finishes only after the orchestrator publishes the first one's
+    record, so a periodic catalog update must happen in between.
     """
     hub = modal_harness.hub
     _register(hub)
     _register(hub, cytebaseId=OTHER_ID, datasetId=OTHER_DATASET_ID)
-    clock, released, published = Clock(), threading.Event(), []
+    clock, started, released = Clock(), threading.Event(), threading.Event()
+    published = []
     monkeypatch.setattr(app, "monotonic", clock)
 
     def run_dataset(record, request, storage, progress, check, *, resources):
         if record.cytebaseId == CYTEBASE_ID:
+            if not started.wait(5):
+                raise AssertionError("The second dataset never started")
             clock.advance(61)
-        elif not released.wait(5):
-            raise AssertionError("The periodic catalog update never happened")
+        else:
+            started.set()
+            if not released.wait(5):
+                raise AssertionError("The periodic catalog update never happened")
         return {"outcome": "succeeded"}
 
     def run_catalog(request, storage, check):
