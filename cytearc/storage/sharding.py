@@ -1762,8 +1762,10 @@ def write_counts_t(
                                     pending,
                                     return_when=asyncio.FIRST_COMPLETED,
                                 )
-                                for completed in done:
-                                    completed.result()
+                                if any(task.cancelled() for task in done):
+                                    raise asyncio.CancelledError
+                if any(task.cancelled() for task in pending):
+                    raise asyncio.CancelledError
 
                 async with runner.commit_lane():
                     await runner.io(
@@ -1786,8 +1788,10 @@ def write_counts_t(
                         pending_dest,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
-                    for completed in done:
-                        completed.result()
+                    if any(task.cancelled() for task in done):
+                        raise asyncio.CancelledError
+        if any(task.cancelled() for task in pending_dest):
+            raise asyncio.CancelledError
 
     runner = AsyncStorageRunner(
         operation=operation,

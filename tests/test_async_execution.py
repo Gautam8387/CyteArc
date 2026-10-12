@@ -438,6 +438,129 @@ def test_retry_replaces_incomplete_destination() -> None:
     np.testing.assert_array_equal(np.asarray(counts_t[:]), values.T)
 
 
+@pytest.mark.parametrize("stage", ["read", "write"])
+def test_writer_reports_failure_once_before_group_callback(monkeypatch, stage) -> None:
+    import types
+
+    from zarr.core.array import AsyncArray
+
+    import cytearc.storage.sharding as sharding
+
+    values = np.arange(12, dtype=np.uint16).reshape(3, 4)
+    group, counts = _write_counts(values)
+    failure = OSError(f"{stage} failed")
+    delayed = []
+    getitem, setitem = AsyncArray.getitem, AsyncArray.setitem
+
+    class DelayedTaskGroup(asyncio.TaskGroup):
+        def _on_task_done(self, task):
+            if not task.cancelled() and task.exception() is failure:
+                # Let asyncio.wait resume before TaskGroup handles the failure.
+                delayed.append(task.exception())
+                loop = asyncio.get_running_loop()
+                loop.call_soon(loop.call_soon, super()._on_task_done, task)
+            else:
+                super()._on_task_done(task)
+
+    async def read(self, *args, **kwargs):
+        if stage == "read" and self.path == counts.path:
+            raise failure
+        return await getitem(self, *args, **kwargs)
+
+    async def write(self, *args, **kwargs):
+        if stage == "write" and self.path.endswith("countsT"):
+            raise failure
+        return await setitem(self, *args, **kwargs)
+
+    patched_asyncio = types.SimpleNamespace(**vars(asyncio))
+    patched_asyncio.TaskGroup = DelayedTaskGroup
+    metrics = {}
+    resources = ResourceBudget(8 * 1024**2, 2)
+    io = StorageIoPolicy(readWorkers=1)
+    with monkeypatch.context() as patch:
+        patch.setattr(sharding, "asyncio", patched_asyncio)
+        patch.setattr(AsyncArray, "getitem", read)
+        patch.setattr(AsyncArray, "setitem", write)
+        with pytest.raises(OSError, match=f"{stage} failed") as caught:
+            write_counts_t(counts, group, resources=resources, io=io, metrics=metrics)
+
+    assert caught.value is failure
+    assert delayed == [failure]
+    assert group["countsT"].attrs["complete"] is False
+    assert metrics["terminalStatus"] == "error"
+    assert metrics["heldLedgerBytes"] == 0
+
+    result = write_counts_t(counts, group, resources=resources, io=io, overwrite=True)
+    assert result.attrs["complete"] is True
+    np.testing.assert_array_equal(result[:], values.T)
+
+
+@pytest.mark.parametrize("stage", ["read", "write"])
+@pytest.mark.parametrize("final_batch", [False, True])
+def test_writer_cancellation_keeps_destination_incomplete(
+    monkeypatch, stage, final_batch
+) -> None:
+    import types
+
+    from zarr.core.array import AsyncArray
+
+    import cytearc.storage.sharding as sharding
+
+    shape = (17, 41) if final_batch else (3, 4)
+    values = np.arange(math.prod(shape), dtype=np.uint16).reshape(shape)
+    group, counts = _write_counts(values)
+    method_name = "getitem" if stage == "read" else "setitem"
+    original = getattr(AsyncArray, method_name)
+    target = counts.path if stage == "read" else "RNA/countsT"
+    closing = threading.Event()
+    groups = []
+    cancelled = []
+
+    class ClosingTaskGroup(asyncio.TaskGroup):
+        def __init__(self):
+            super().__init__()
+            groups.append(self)
+
+        async def __aexit__(self, *args):
+            if self is groups[0]:
+                closing.set()
+            return await super().__aexit__(*args)
+
+    async def cancel(self, selection, *args, **kwargs):
+        feature_slice = selection[1 if stage == "read" else 0]
+        if self.path == target and (not final_batch or feature_slice.start == 40):
+            if final_batch and stage == "write":
+                # Cancel the last write only after the scheduling loop has ended.
+                assert await asyncio.to_thread(closing.wait, 5)
+            cancelled.append(selection)
+            raise asyncio.CancelledError
+        return await original(self, selection, *args, **kwargs)
+
+    patched_asyncio = types.SimpleNamespace(**vars(asyncio))
+    patched_asyncio.TaskGroup = ClosingTaskGroup
+    monkeypatch.setattr(sharding, "asyncio", patched_asyncio)
+    monkeypatch.setattr(AsyncArray, method_name, cancel)
+    metrics = {}
+    with pytest.raises(asyncio.CancelledError):
+        write_counts_t(
+            counts,
+            group,
+            resources=ResourceBudget(8 * 1024**2, 4),
+            io=StorageIoPolicy(
+                readWorkers=2 if final_batch and stage == "write" else 1
+            ),
+            metrics=metrics,
+        )
+
+    assert len(cancelled) == 1
+    assert group["countsT"].attrs["complete"] is False
+    assert metrics["terminalStatus"] == "error"
+    assert metrics["heldLedgerBytes"] == 0
+    if final_batch and stage == "read":
+        # The edge destination has one read, below the batch's scheduling threshold.
+        assert metrics["sourceReadsPerDestination"] > 1
+
+
 def test_writer_rejects_mismatched_persisted_plan() -> None:
     values = np.arange(20, dtype=np.uint16).reshape(4, 5)
     group, counts = _write_counts(values)

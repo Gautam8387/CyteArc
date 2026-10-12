@@ -1098,6 +1098,98 @@ def test_feature_stream_reports_failure_once_before_group_callback(
 
 
 @pytest.mark.parametrize("ordered", [False, True])
+@pytest.mark.parametrize("mapper_name", ["read_groups", "cell_bands"])
+@pytest.mark.parametrize("final_batch", [False, True])
+def test_feature_stream_propagates_callback_cancellation(
+    ordered, mapper_name, final_batch
+) -> None:
+    import asyncio
+
+    import cytearc.storage.feature_stream as feature_stream
+
+    counts_t = _counts_t_with_plan(np.arange(17 * 41, dtype=np.uint16).reshape(17, 41))
+    cancelled = []
+
+    def process(item):
+        selected = item.unitIndex == 0
+        if final_batch:
+            selected = item.featEnd == counts_t.shape[0] and (
+                getattr(item, "cellEnd", counts_t.shape[1]) == counts_t.shape[1]
+            )
+        if selected:
+            cancelled.append(item.unitIndex)
+            raise asyncio.CancelledError
+        return item
+
+    mapper = getattr(feature_stream, f"map_feature_{mapper_name}")
+    with pytest.raises(asyncio.CancelledError):
+        list(
+            mapper(
+                counts_t,
+                process,
+                resources=ResourceBudget(8 * 1024**2, 2),
+                io=StorageIoPolicy(readWorkers=2 if final_batch else 1),
+                orderedCompute=ordered,
+            )
+        )
+    assert len(cancelled) == 1
+
+
+def test_ordered_stream_cancels_successor_of_cancelled_final_batch_unit(
+    monkeypatch,
+) -> None:
+    import asyncio
+    import types
+
+    import cytearc.storage.feature_stream as feature_stream
+
+    counts_t = _counts_t_with_plan(np.arange(64 * 64, dtype=np.uint16).reshape(64, 64))
+    first_completed = threading.Event()
+    processed = []
+
+    async def wait(*args, **kwargs):
+        async with asyncio.timeout(5):
+            result = await asyncio.wait(*args, **kwargs)
+        first_completed.set()
+        return result
+
+    class BoundedTaskGroup(asyncio.TaskGroup):
+        async def __aexit__(self, *args):
+            # Bound the regression: the successor used to wait forever here.
+            async with asyncio.timeout(5):
+                return await super().__aexit__(*args)
+
+    def process(item):
+        processed.append(item.unitIndex)
+        if item.unitIndex == 1:
+            # Leave units 1 and 2 pending after the admission wait returns.
+            assert first_completed.wait(5)
+            raise asyncio.CancelledError
+        return item.unitIndex
+
+    patched_asyncio = types.SimpleNamespace(**vars(asyncio))
+    patched_asyncio.TaskGroup = BoundedTaskGroup
+    patched_asyncio.wait = wait
+    monkeypatch.setattr(feature_stream, "asyncio", patched_asyncio)
+    metrics = {}
+    with pytest.raises(asyncio.CancelledError):
+        list(
+            feature_stream.map_feature_cell_bands(
+                counts_t,
+                process,
+                cell_idx=np.array([0]),
+                feat_idx=np.array([0, 15, 30]),
+                resources=ResourceBudget(8 * 1024**2, 3),
+                io=StorageIoPolicy(readWorkers=3),
+                orderedCompute=True,
+                metrics=metrics,
+            )
+        )
+    assert processed == [0, 1]
+    assert metrics["actualReadWorkers"] == 3
+
+
+@pytest.mark.parametrize("ordered", [False, True])
 def test_stream_closes_when_a_unit_starts_after_stop(monkeypatch, ordered) -> None:
     import asyncio
     import types

@@ -783,10 +783,19 @@ def stream_units(
                         break
                     pending.add(tasks.create_task(one_unit(idx, unit)))
                     if len(pending) >= in_flight:
-                        _, pending = await asyncio.wait(
+                        done, pending = await asyncio.wait(
                             pending,
                             return_when=asyncio.FIRST_COMPLETED,
                         )
+                        if any(task.cancelled() for task in done):
+                            raise asyncio.CancelledError
+                while pending:
+                    done, pending = await asyncio.wait(
+                        pending,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if any(task.cancelled() for task in done):
+                        raise asyncio.CancelledError
 
         runner = AsyncStorageRunner(operation=plan)
         try:
