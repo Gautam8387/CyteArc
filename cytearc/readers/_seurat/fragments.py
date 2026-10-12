@@ -1378,7 +1378,6 @@ def fragment_source_from_slots(
                 ),
                 metadata_bytes=metadata_bytes,
             )
-        raise AssertionError(class_name)
 
     store: _BPArrayStore
     if class_name in {"UnpackedMemFragments", "PackedMemFragments"}:
@@ -1414,7 +1413,7 @@ def fragment_source_from_slots(
             slots, "chr_names", object_path, limits
         )
         cell_names = _optional_override_names(slots, "cell_names", object_path, limits)
-    elif class_name == "FragmentsHDF5":
+    else:
         path_value = slots.get("path", slots.get("filepath"))
         if path_value is None or "group" not in slots:
             raise MatrixSourceError(
@@ -1433,8 +1432,6 @@ def fragment_source_from_slots(
             slots, "chr_names", object_path, limits
         )
         cell_names = _optional_override_names(slots, "cell_names", object_path, limits)
-    else:
-        raise AssertionError(class_name)
     match = _FRAGMENT_VERSION_PATTERN.fullmatch(store.version)
     if match is None:
         raise MatrixSourceError(

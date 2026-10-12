@@ -5,7 +5,7 @@ from zarr.storage import MemoryStore
 
 from cytearc.datastore.artifact_accessor import ArtifactAccessor
 from cytearc.datastore.base_datastore import BaseDataStore
-from cytearc.storage.lineage import ArtifactLineage
+from cytearc.storage.lineage import ArtifactLineage, _artifact_inputs, _external_inputs
 from cytearc.mapping.reference import MappingReference
 from cytearc.storage.artifacts import (
     ArtifactRef,
@@ -28,6 +28,26 @@ def _ref(
         kind=kind,
         artifact_id=token * 64,
     )
+
+
+def test_nested_reference_inputs_preserve_locations_and_external_metadata() -> None:
+    local = _ref("reduction", "a")
+    external = ExternalArtifactRef("b" * 64, local)
+    inputs = {"sources": [local, external, external.to_dict(), {"label": "sample"}]}
+
+    assert list(_artifact_inputs(inputs)) == [
+        ("sources[0]", local),
+        ("sources[1]", external),
+        ("sources[2]", external),
+    ]
+    assert _external_inputs(inputs) == {"sources": {"[3]": {"label": "sample"}}}
+
+
+def test_malformed_external_lineage_reference_identifies_its_location() -> None:
+    with pytest.raises(ValueError, match=r"lineage input 'sources\[0\]'") as caught:
+        list(_artifact_inputs({"sources": [{"type": "external_artifact"}]}))
+
+    assert isinstance(caught.value.__cause__, ValueError)
 
 
 def _write_artifact(

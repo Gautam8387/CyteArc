@@ -156,6 +156,14 @@ def test_doublet_metric_uses_cohort_top_decile_without_a_probability_threshold()
     assert _doublet_concentration(scores, labels) == 2
     assert _doublet_concentration(scores * 10, labels) == 2
     assert _doublet_concentration(np.full(100, np.nan), labels) is None
+    maximum = np.finfo(np.float64).max
+    with np.errstate(over="ignore", invalid="ignore"):
+        assert (
+            _doublet_concentration(
+                np.array([-maximum] * 6 + [maximum]), np.zeros(7, dtype=int)
+            )
+            is None
+        )
 
 
 def test_diagnostic_sampling_is_bounded_stable_and_bound_to_the_gate() -> None:

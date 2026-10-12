@@ -100,8 +100,6 @@ def _clr_normalize(hto_counts: pd.DataFrame) -> pd.DataFrame:
         index=hto_counts.index,
         columns=hto_counts.columns,
     )
-    if not np.all(np.isfinite(normalized.to_numpy())):
-        raise ValueError("CLR normalization produced non-finite HTO values")
     return normalized
 
 

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numba
 import numpy as np
 import pandas as pd
@@ -33,6 +35,24 @@ def _prepared_network(*, weighted: bool):
         tmin=2,
         weighted=weighted,
     )
+
+
+def test_waggr_rejects_feature_indices_changed_after_network_preparation():
+    network = _prepared_network(weighted=True)
+    network = replace(network, edge_feature_index=network.edge_feature_index.copy())
+    network.edge_feature_index[-1] = 4
+
+    with pytest.raises(ValueError, match="Network edges do not align"):
+        build_waggr_model(network)
+
+
+def test_aucell_rejects_source_sizes_changed_after_network_preparation():
+    network = _prepared_network(weighted=False)
+    network = replace(network, source_sizes=network.source_sizes.copy())
+    network.source_sizes[0] += 1
+
+    with pytest.raises(ValueError, match="Gene-set sizes do not align"):
+        build_gene_set_index(network, np.arange(4))
 
 
 def test_waggr_matches_frozen_decoupler_2_2_reference():

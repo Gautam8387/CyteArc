@@ -14,6 +14,23 @@ from cytearc.neighbors import graph as neighbor_graph
 from cytearc.trajectory import fate
 
 
+@pytest.mark.parametrize(
+    "kernel",
+    [
+        neighbor_graph._count_shared_neighbors,
+        neighbor_graph._count_shared_neighbors.py_func,
+    ],
+    ids=["jit", "python"],
+)
+def test_shared_neighbor_counts_include_zero_and_partial_overlap(kernel) -> None:
+    indices = np.array([[1, 2], [0, 2], [0, 3], [0, 1]], dtype=np.int64)
+    counts = np.full(indices.shape, -1, dtype=np.int64)
+
+    kernel(indices, counts)
+
+    np.testing.assert_array_equal(counts, [[1, 0], [1, 1], [0, 1], [1, 1]])
+
+
 def test_paris_python_nearest_neighbor_kernel_matches_compiled_kernel() -> None:
     graph = csr_matrix(
         np.array(

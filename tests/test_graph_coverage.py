@@ -1042,8 +1042,8 @@ def test_integrate_assays_snn_writes_and_reuses_exact_sources(
     assert loaded.shape == (3, 3)
     np.testing.assert_array_equal(np.diff(loaded.indptr), [2, 2, 2])
     np.testing.assert_allclose(
-        np.sort(loaded.data),
-        np.array([7.0, 8.0, 9.0, 10.0, 11.0, 12.0]),
+        loaded.toarray(),
+        [[0.0, 7.0, 8.0], [9.0, 0.0, 10.0], [11.0, 12.0, 0.0]],
     )
 
 

@@ -100,7 +100,8 @@ def retry[T](
     hf_xet has already retried and reports no server wait.
     A supplied stop event interrupts backoff and prevents another attempt.
     """
-    for attempt in range(4):
+    attempt = 0
+    while True:
         if stop_event is not None and stop_event.is_set():
             raise CancelledError("Transfer cancelled")
         try:
@@ -135,7 +136,7 @@ def retry[T](
             time.sleep(delay)
         elif stop_event.wait(delay):
             raise CancelledError("Transfer cancelled") from failure
-    raise AssertionError("Unreachable retry state")
+        attempt += 1
 
 
 def _path(path: str, *, prefix: bool = False) -> str:

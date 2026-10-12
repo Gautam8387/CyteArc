@@ -133,10 +133,7 @@ def _has_reference_dtype(dtype: np.dtype[Any]) -> bool:
         return any(_has_reference_dtype(field[0]) for field in dtype.fields.values())
     if dtype.subdtype is not None:
         return _has_reference_dtype(dtype.subdtype[0])
-    try:
-        return h5py.check_dtype(ref=dtype) is not None
-    except TypeError:
-        return False
+    return h5py.check_dtype(ref=dtype) is not None
 
 
 def _validate_attribute_value(

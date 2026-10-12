@@ -105,17 +105,11 @@ def _leaf_component_ids(hierarchy: ParisHierarchy) -> np.ndarray:
     stack = np.empty(n_nodes, dtype=np.int64)
     for component, raw_root in enumerate(hierarchy.component_roots):
         root = int(raw_root)
-        if root < 0 or root >= n_nodes:
-            raise ValueError("component root lies outside the hierarchy")
         stack_size = 1
         stack[0] = root
         while stack_size:
             stack_size -= 1
             node = int(stack[stack_size])
-            if owners[node] >= 0:
-                raise ValueError("finite hierarchy components overlap")
-            if node >= n_leaves and hierarchy.synthetic_joins[node - n_leaves]:
-                raise ValueError("component roots cannot contain synthetic joins")
             owners[node] = component
             if node < n_leaves:
                 continue
@@ -124,10 +118,6 @@ def _leaf_component_ids(hierarchy: ParisHierarchy) -> np.ndarray:
             stack[stack_size + 1] = int(right)
             stack_size += 2
 
-    finite_nodes = np.ones(n_nodes, dtype=bool)
-    finite_nodes[n_leaves:] = ~hierarchy.synthetic_joins
-    if np.any(owners[finite_nodes] < 0) or np.any(owners[~finite_nodes] >= 0):
-        raise ValueError("component roots do not cover exactly the finite hierarchy")
     owner_dtype = (
         np.int32
         if hierarchy.component_roots.size <= np.iinfo(np.int32).max
@@ -315,10 +305,7 @@ def _event_components(
                 raise ValueError("plateau parent and child references disagree")
 
     for event, parent in enumerate(forest.parent_events):
-        if int(parent) < 0:
-            if incoming[event] != 0:
-                raise ValueError("plateau root has an incoming event reference")
-        elif incoming[event] != 1:
+        if int(parent) >= 0 and incoming[event] != 1:
             raise ValueError("non-root plateau event must have one parent")
 
     component_ids = np.full(n_events, -1, dtype=np.int32)
@@ -400,8 +387,6 @@ def aggregate_plateau_statistics(
             + raw_internal_edges[right]
             + topology.lca_edge_counts[merge_index]
         )
-        if int(raw_sizes[node]) != int(hierarchy.sizes[merge_index]):
-            raise ValueError("hierarchy sizes changed during event aggregation")
 
     for component, root in enumerate(hierarchy.component_roots):
         raw_root = int(root)
@@ -410,8 +395,6 @@ def aggregate_plateau_statistics(
             raise ValueError("component root does not contain its declared edges")
         if int(raw_volumes[raw_root]) != 2 * edge_count:
             raise ValueError("component volume is not twice its edge count")
-        if raw_root < n_leaves and int(leaf_components[raw_root]) != component:
-            raise ValueError("isolated component ownership is inconsistent")
 
     n_events = forest.representatives.size
     cross_edges = np.empty(n_events, dtype=np.int64)

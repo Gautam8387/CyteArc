@@ -7,7 +7,7 @@ import struct
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import zarr
@@ -127,8 +127,6 @@ def _dtype_descriptor(dtype: np.dtype[Any]) -> dict[str, Any]:
 
 def _canonical_array(values: np.ndarray) -> np.ndarray:
     array = np.asarray(values)
-    if array.dtype.hasobject:
-        raise TypeError("Object arrays require an explicit stable encoding")
     dtype = _canonical_dtype(array.dtype)
     if array.dtype.fields is None:
         return np.ascontiguousarray(array.astype(dtype, copy=False))
@@ -614,8 +612,7 @@ def _artifact_status(group: zarr.Group, ref: ArtifactRef, path: str) -> Artifact
             f"Artifact cytearc_version at {path} must be a non-empty string"
         )
     if complete:
-        if provenance is None or execution_options is None:
-            raise KeyError(f"Completed artifact at {path} has an incomplete record")
+        provenance = cast(dict[str, Any], provenance)
         operation = provenance.get("operation")
         parameters = provenance.get("parameters")
         inputs = provenance.get("inputs")

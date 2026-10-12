@@ -22,6 +22,7 @@ from contextlib import nullcontext
 import tracemalloc
 import weakref
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -58,6 +59,33 @@ N_CELLS = 120
 
 
 # Estimators
+
+
+@pytest.mark.parametrize(
+    ("platform_name", "machine", "mutex_difference", "label_difference"),
+    [
+        ("win32", "AMD64", 40, 40),
+        ("darwin", "arm64", 24, 0),
+        ("linux", "aarch64", 8, 0),
+        ("linux", "AMD64", 0, 0),
+    ],
+)
+def test_ann_memory_estimate_accounts_for_platform_allocation_sizes(
+    monkeypatch, platform_name, machine, mutex_difference, label_difference
+):
+    from cytearc.neighbors import index
+
+    monkeypatch.setattr(index, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(index.platform, "machine", lambda: "x86_64")
+    baseline = ann_index_peak_bytes(1_000, 5, 8, nthreads=2)
+    saved_bytes = ann_index_file_bytes(1_000, 5, 8)
+
+    monkeypatch.setattr(index, "sys", SimpleNamespace(platform=platform_name))
+    monkeypatch.setattr(index.platform, "machine", lambda: machine)
+
+    expected_extra = (1_000 + 65_536) * mutex_difference + 1_000 * label_difference
+    assert ann_index_peak_bytes(1_000, 5, 8, nthreads=2) == baseline + expected_extra
+    assert ann_index_file_bytes(1_000, 5, 8) == saved_bytes
 
 
 def _traced_peak(run) -> int:

@@ -859,3 +859,35 @@ def test_resume_rejects_changed_cached_comparison_before_selection(
     assert "Saved comparison evidence" in records.latest("status")["message"]
     assert observed == []
     assert len(science.calls) == before_calls
+
+
+def test_resume_rejects_an_empty_persisted_finalist_shortlist(
+    science, tmp_path, monkeypatch
+):
+    import asyncio
+
+    complete = workflow._complete
+
+    def stop_after_exploration(records, stage, result):
+        complete(records, stage, result)
+        if stage == "explore":
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(workflow, "_complete", stop_after_exploration)
+    with pytest.raises(asyncio.CancelledError):
+        _analyze(science, tmp_path, _model([]))
+    records = RunRecords(tmp_path / "analysis")
+    explored = records.read_json("evidence/explore.json")
+    explored["shortlist"] = []
+    records.write_json("evidence/explore.json", explored, immutable=False)
+    monkeypatch.setattr(workflow, "_complete", complete)
+    calls = len(science.calls)
+    observed = []
+    result = resume_rna(records.path, model=_model(observed))
+    assert result.status == "failed"
+    assert (
+        "No scientifically admissible finalist remains"
+        in records.latest("status")["message"]
+    )
+    assert len(science.calls) == calls
+    assert observed == []

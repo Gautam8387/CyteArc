@@ -3897,33 +3897,87 @@ def test_identifier_iteration_reads_blocks(monkeypatch: pytest.MonkeyPatch) -> N
     assert values.reads == [(0, 2), (2, 4), (4, 5)]
 
 
+@pytest.mark.parametrize("file_removed", [False, True])
 def test_identifier_database_closes_its_connection_when_setup_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    file_removed: bool,
 ) -> None:
-    closed: list[bool] = []
+    connections: list[sqlite3.Connection] = []
+    connect = sqlite3.connect
 
-    class _Connection:
-        def execute(self, statement: str) -> "_Connection":
+    class _Connection(sqlite3.Connection):
+        def execute(self, statement: str, parameters=()):
             if statement.startswith("CREATE TABLE"):
+                if file_removed:
+                    self.close()
+                    next(tmp_path.iterdir()).unlink()
                 raise sqlite3.OperationalError("disk I/O error")
-            return self
+            return super().execute(statement, parameters)
 
-        def fetchone(self) -> tuple[int]:
-            return (4096,)
+    def failing_connection(path):
+        connection = connect(path, factory=_Connection)
+        connections.append(connection)
+        return connection
 
-        def close(self) -> None:
-            closed.append(True)
-
-    monkeypatch.setattr(sqlite3, "connect", lambda path: _Connection())
+    monkeypatch.setattr(sqlite3, "connect", failing_connection)
     with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
         seurat_module._identifier_database(
             scratch_dir=tmp_path,
             maximum_bytes=1024 * 1024,
             object_path="ids",
         )
-    assert closed == [True]
+    (connection,) = connections
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        connection.execute("SELECT 1")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_identifier_database_cleanup_tolerates_a_removed_file(tmp_path: Path) -> None:
+    connection, path = seurat_module._identifier_database(
+        scratch_dir=tmp_path, maximum_bytes=8192, object_path="ids"
+    )
+    connection.execute("INSERT INTO ids VALUES ('c1', 0, 0)")
+    connection.commit()
+    connection.close()
+    Path(path).unlink()
+
+    seurat_module._close_identifier_database(connection, path)
+
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        connection.execute("SELECT 1")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_identifier_mapping_checks_its_memory_before_creating_scratch(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(SeuratImportError) as error:
+        seurat_module._identifier_positions(
+            ("c1", "c2"),
+            ("c1", "c2"),
+            object_path="cells",
+            scratch_dir=tmp_path,
+            maximum_bytes=15,
+            bijective=True,
+        )
+    assert (error.value.code, error.value.objectPath, error.value.context) == (
+        "metadata_index_limit",
+        "cells",
+        {"requiredBytes": 16, "maximumBytes": 15},
+    )
+    assert list(tmp_path.iterdir()) == []
+    assert (
+        seurat_module._identifier_positions(
+            ("c1", "c2"),
+            ("c1", "c2"),
+            object_path="cells",
+            scratch_dir=tmp_path,
+            maximum_bytes=16,
+            bijective=True,
+        )
+        is None
+    )
 
 
 def test_close_releases_the_document_when_cleanup_fails(
@@ -5911,3 +5965,87 @@ def test_identifier_sources_must_return_the_requested_block() -> None:
         "invalid_id_source",
         {"expected": 3, "actual": 1},
     )
+
+
+@pytest.mark.parametrize("n_cells", [60, 61])
+def test_assay5_stitching_includes_final_membership_in_its_budget(
+    tmp_path: Path, n_cells: int
+) -> None:
+    wire = _Wire()
+    cells = [f"c{index}" for index in range(n_cells)]
+    assay = _single_layer_assay(
+        wire,
+        wire.matrix([1] * n_cells, (1, n_cells)),
+        cells=cells,
+        genes=["g"],
+    )
+    path = _write_document(
+        tmp_path / "assay5.rds",
+        _seurat_document(
+            wire,
+            assays=[assay],
+            metadata=wire.data_frame([], cells),
+            active_identity=wire.factor([1] * n_cells, ["group"], names=cells),
+        ),
+    )
+    with SeuratReader(
+        path, reductions=[], matrix_limits=SourceLimits(maxMetadataBytes=8192)
+    ) as reader:
+        inspection = reader.inspection.assay("RNA")
+        if n_cells == 60:
+            assert inspection.importable
+            np.testing.assert_array_equal(
+                reader.get_assay("RNA").counts.read_cells(0, n_cells).toarray(),
+                np.ones((n_cells, 1), dtype=np.uint32),
+            )
+        else:
+            assert not inspection.importable
+            with pytest.raises(SeuratImportError) as error:
+                reader.get_assay("RNA")
+            assert (error.value.code, error.value.objectPath, error.value.context) == (
+                "metadata_index_limit",
+                "assays/RNA/layers",
+                {"requiredBytes": 8328, "maximumBytes": 8192},
+            )
+
+
+def test_cached_sidecar_axis_rejects_identifier_count_mismatch(tmp_path: Path) -> None:
+    with SeuratReader(_write_fixture(tmp_path / "axis.rds"), reductions=[]) as reader:
+        with pytest.raises(SeuratImportError) as error:
+            reader._cached_axis_positions(
+                ("c1",), ("c1", "c2"), 2, object_path="assays/RNA/counts/Dimnames/1"
+            )
+        assert (error.value.code, error.value.objectPath, error.value.context) == (
+            "sidecar_dimension_mismatch",
+            "assays/RNA/counts/Dimnames/1",
+            {"sourceSize": 2, "identifierCount": 1},
+        )
+
+
+def test_matrix_source_preserves_structured_import_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    error = SeuratImportError(
+        "matrix input is invalid",
+        object_path="assays/RNA/counts",
+        code="invalid_id_source",
+        context={"expected": 3, "actual": 1},
+    )
+
+    def fail_source(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(seurat_module, "matrix_source_from_slots", fail_source)
+    with SeuratReader(
+        _write_fixture(tmp_path / "failure.rds"), reductions=[]
+    ) as reader:
+        diagnostic = reader.inspection.assay("RNA").blockingDiagnostic
+        assert diagnostic is not None
+        assert (diagnostic.code, diagnostic.objectPath, diagnostic.context) == (
+            error.code,
+            error.objectPath,
+            error.context,
+        )
+        with pytest.raises(SeuratImportError) as caught:
+            reader.get_assay("RNA")
+        assert caught.value is error

@@ -57,9 +57,7 @@ def artifact_plan_scope() -> Any:
 
 
 def _record_plan(planned: "PlannedArtifact") -> "PlannedArtifact":
-    operation = planned.provenance.get("operation")
-    if not isinstance(operation, str) or not operation:
-        raise TypeError("Planned artifact operation must be a non-empty string")
+    operation = planned.provenance["operation"]
     receipt = ArtifactPlanReceipt(
         operation=operation,
         ref=planned.ref,

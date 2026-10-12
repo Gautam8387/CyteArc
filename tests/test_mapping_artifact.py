@@ -547,6 +547,12 @@ def test_mapping_reference_stream_writer_preserves_model_arrays(symphony):
             **payload,
             expected_source_fingerprint=fingerprint,
         )
+        assert not mapping_reference_payload_matches_sources(
+            group,
+            **incomplete_sources,
+            **(payload | {"metadata": {"method": "pca"}}),
+            expected_source_fingerprint=fingerprint,
+        )
     group["loadings"][0, 0] += 1
     assert not mapping_reference_payload_matches_sources(
         group, **sources, **payload, expected_source_fingerprint=fingerprint

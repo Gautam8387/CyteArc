@@ -64,10 +64,7 @@ def get_compressors(
 
 
 def _group_zarr_format(group: zarr.Group) -> int:
-    metadata = getattr(group, "metadata", None)
-    if metadata is not None and getattr(metadata, "zarr_format", None) is not None:
-        return int(metadata.zarr_format)
-    return 3
+    return int(group.metadata.zarr_format)
 
 
 def normalize_chunks(

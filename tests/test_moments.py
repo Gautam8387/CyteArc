@@ -9,12 +9,57 @@ import pytest
 from numba import njit
 
 from cytearc.utils.moments import (
+    _column_moments_kernel,
     add_implicit_zeros,
     column_moments,
     welford_add,
 )
 
 MOMENT_DTYPES = ["bool", "uint64", "int64", "float16", "float32", "float64"]
+
+
+@pytest.mark.parametrize(
+    "kernel",
+    [_column_moments_kernel, _column_moments_kernel.py_func],
+    ids=["jit", "python"],
+)
+def test_column_kernel_keeps_small_variance_beside_a_large_mean(kernel):
+    values = np.array([[1e9, 0, -4], [1e9 + 1, 2, 1], [1e9 - 1, 4, 6]])
+    total = np.zeros(3)
+    mean = np.empty(3)
+    m2 = np.zeros(3)
+
+    kernel(values, total, mean, m2)
+
+    np.testing.assert_array_equal(total, [3e9, 6, 3])
+    np.testing.assert_array_equal(mean, [1e9, 2, 1])
+    np.testing.assert_array_equal(m2, [2, 8, 50])
+
+
+@pytest.mark.parametrize("implementation", ["jit", "python"])
+def test_running_moments_and_implicit_zeros_match_numpy(implementation):
+    update = welford_add if implementation == "jit" else welford_add.py_func
+    with_zeros = (
+        add_implicit_zeros if implementation == "jit" else add_implicit_zeros.py_func
+    )
+    values = np.array([-3.0, 1e9, 1e9 + 1])
+    mean = m2 = 0.0
+    for count, value in enumerate(values, start=1):
+        mean, m2 = update(count, mean, m2, value)
+        prefix = values[:count]
+        np.testing.assert_allclose(mean, prefix.mean(), rtol=1e-14)
+        np.testing.assert_allclose(
+            m2, np.square(prefix - prefix.mean()).sum(), rtol=1e-14
+        )
+
+    assert with_zeros(m2, mean, len(values), len(values)) == m2
+    assert with_zeros(0.0, 0.0, 0, 5) == 0.0
+    padded = np.concatenate((values, np.zeros(4)))
+    np.testing.assert_allclose(
+        with_zeros(m2, mean, len(values), len(padded)),
+        np.square(padded - padded.mean()).sum(),
+        rtol=1e-14,
+    )
 
 
 def _values(dtype: str, shape: tuple[int, int], seed: int = 0) -> np.ndarray:

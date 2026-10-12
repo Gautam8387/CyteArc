@@ -55,8 +55,6 @@ def binned_sampling(
     control_genes: set[Any] = set()
     for cut in np.unique(obs_cut[list(feature_set)]):
         sub_obs = obs_cut[obs_cut == cut]
-        if len(sub_obs) == 0:
-            continue
         r_genes = (
             sub_obs.sample(n=ctrl_size, random_state=rng).index
             if len(sub_obs) > ctrl_size

@@ -56,12 +56,6 @@ def _validate_linkage_children(dendrogram: np.ndarray) -> np.ndarray:
         raise ValueError(
             f"dendrogram child node {int(repeated[0])} is consumed more than once"
         )
-    missing = np.flatnonzero(consumption_counts[:-1] == 0)
-    if missing.size > 0:
-        raise ValueError(
-            "dendrogram must consume every non-root node exactly once; "
-            f"missing node {int(missing[0])}"
-        )
     return children
 
 

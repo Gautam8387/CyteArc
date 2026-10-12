@@ -36,7 +36,9 @@ from cytearc.merge import DataStoreMerge
 from cytearc.metadata import MetaData
 from cytearc.metadata.membership import (
     UnmeasuredCellsError,
+    count_unmeasured_cells_with_counts,
     measured_rows,
+    measured_selection,
     membership_attributes,
     require_measured_cells,
 )
@@ -902,6 +904,29 @@ def test_unmeasured_cells_error_keeps_its_fields_through_pickling() -> None:
     assert "cells of 'kept' that it measured" in str(keyed)
     assert pickle.loads(pickle.dumps(keyed)).cell_key == "kept"
     assert str(pickle.loads(pickle.dumps(keyed))) == str(keyed)
+
+
+def test_membership_helpers_reject_unprepared_tables_and_misaligned_values() -> None:
+    group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+    group.create_array("I", data=np.ones(3, dtype=bool))
+    group.create_array("ids", data=np.array(["a", "b", "c"]))
+    group.create_array("names", data=np.array(["A", "B", "C"]))
+    table = MetaData(group)
+
+    with pytest.raises(ValueError, match="no 'RNA_nCounts' column"):
+        count_unmeasured_cells_with_counts(table, "RNA", "RNA_I")
+    with pytest.raises(ValueError, match="one entry per cell"):
+        measured_selection(table, "RNA", np.ones(2, dtype=bool))
+    with pytest.raises(ValueError, match="one value per cell"):
+        write_membership_column(group, "RNA", np.ones((3, 1), dtype=bool))
+
+    assert set(group.array_keys()) == {"I", "ids", "names"}
+    np.testing.assert_array_equal(table.fetch_all("I"), [True, True, True])
+
+
+def test_unmeasured_cells_error_rejects_an_unknown_remedy() -> None:
+    with pytest.raises(ValueError, match="Unknown measured-cells remedy"):
+        UnmeasuredCellsError("normalize", "RNA", "RNA_I", 1, 3, "unknown")
 
 
 # ---------------------------------------------------------------------------

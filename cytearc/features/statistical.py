@@ -618,18 +618,12 @@ def _require_two_group_comparisons(
         return
     for left, right in comparisons:
         pair = (native_value(left), native_value(right))
-        if pair == (g1, g2):
-            continue
         if pair == (g2, g1):
             raise ValueError(
                 f"{test} comparisons must follow the group order ({g1!r}, "
                 f"{g2!r}); list the groups in the wanted contrast order with "
                 "groups= to compare them the other way round"
             )
-        raise ValueError(
-            f"{test} comparisons must reference the two selected groups "
-            f"({g1!r}, {g2!r})"
-        )
 
 
 def _mann_whitney_p_value_method(n_1: int, n_2: int) -> PValueMethod:
@@ -814,11 +808,6 @@ def _one_way_anova(
     groups this reduces to the square of a Student's t-test under equal
     variance, so prefer ``test="welch"`` for uneven group spreads.
     """
-    if len(present) < 2:
-        raise ValueError(
-            "one_way_anova requires at least two groups; use groups= to "
-            "select them explicitly"
-        )
     group_values = [values[groups == g] for g in present]
     if any(len(v) < 2 for v in group_values):
         raise ValueError("one_way_anova requires at least two cells in every group")
@@ -897,11 +886,6 @@ def _dunn_posthoc(
     rows: list[dict[str, Any]] = []
     for left, right in pairs:
         left, right = native_value(left), native_value(right)
-        if left not in mean_rank or right not in mean_rank:
-            raise ValueError(
-                "comparisons references a group not present in the data: "
-                f"{left!r} or {right!r}"
-            )
         standard_error = np.sqrt(variance * (1 / sizes[left] + 1 / sizes[right]))
         z = (
             (mean_rank[left] - mean_rank[right]) / standard_error

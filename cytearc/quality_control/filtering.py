@@ -89,10 +89,6 @@ def validated_work_scale(
         work = np.asarray(np.log1p(raw), dtype=float)
     else:
         work = raw
-    if not np.isfinite(work).all():
-        raise ValueError(
-            f"QC values in '{attr}' contain non-finite entries after {transform}"
-        )
     return work
 
 
@@ -123,8 +119,6 @@ def clamp_metric_bound(
         resolved = min(100.0, max(0.0, bound))
     else:
         resolved = bound
-    if not np.isfinite(resolved):
-        raise ValueError("Resolved MAD bounds must be finite")
     return resolved
 
 

@@ -1335,17 +1335,14 @@ def _matrix_dimnames(
     *,
     document: RdsDocument,
     object_path: str,
-    require_both: bool,
-) -> tuple[Sequence[str] | None, Sequence[str] | None]:
+) -> tuple[Sequence[str], Sequence[str]]:
     dimnames = get_attribute(node, "Dimnames") or get_attribute(node, "dimnames")
     if dimnames is None:
-        if require_both:
-            raise _error(
-                "matrix Dimnames are missing",
-                object_path=f"{object_path}/Dimnames",
-                code="missing_dimnames",
-            )
-        return None, None
+        raise _error(
+            "matrix Dimnames are missing",
+            object_path=f"{object_path}/Dimnames",
+            code="missing_dimnames",
+        )
     if dimnames.type is not RType.VECTOR or not isinstance(dimnames.value, tuple):
         raise _error(
             "matrix Dimnames must contain two axes",
@@ -1359,18 +1356,15 @@ def _matrix_dimnames(
             code="invalid_dimnames",
             actualLength=len(dimnames.value),
         )
-    axes: list[Sequence[str] | None] = []
+    axes: list[Sequence[str]] = []
     for index, axis in enumerate(dimnames.value):
         axis_path = f"{object_path}/Dimnames/{index}"
         if axis.is_null:
-            if require_both:
-                raise _error(
-                    "matrix axis identifiers are missing",
-                    object_path=axis_path,
-                    code="missing_dimnames",
-                )
-            axes.append(None)
-            continue
+            raise _error(
+                "matrix axis identifiers are missing",
+                object_path=axis_path,
+                code="missing_dimnames",
+            )
         axes.append(
             SeuratStringVector(
                 _string_values(axis, object_path=axis_path),
@@ -1690,8 +1684,6 @@ def _identifier_positions(
                 count=len(rows),
             )
             start = stop
-        if start != len(source_ids):
-            raise RuntimeError("identifier mapping row count changed")
         return result
     except sqlite3.IntegrityError as error:
         raise _error(
@@ -2043,8 +2035,6 @@ class SeuratReader:
         self._ensure_open()
         if self._activeIdentityError is not None:
             raise self._activeIdentityError
-        if self._activeIdentity is None:
-            raise AssertionError("active identity status is inconsistent")
         return self._activeIdentity
 
     @property
@@ -2094,10 +2084,7 @@ class SeuratReader:
         error = self._assayErrors.get(selected)
         if error is not None:
             raise error
-        try:
-            return self._assayModels[selected]
-        except KeyError as error:
-            raise AssertionError("assay inspection status is inconsistent") from error
+        return self._assayModels[selected]
 
     def get_reduction(self, name: str) -> SeuratReduction:
         self._ensure_open()
@@ -2111,12 +2098,7 @@ class SeuratReader:
         error = self._reductionErrors.get(name)
         if error is not None:
             raise error
-        try:
-            return self._reductionModels[name]
-        except KeyError as error:
-            raise AssertionError(
-                "reduction inspection status is inconsistent"
-            ) from error
+        return self._reductionModels[name]
 
     def _load_save_seurat_cache(self, root: RNode) -> None:
         self._cachedLayers: dict[str, tuple[_CachedLayerSpec, ...]] = {}
@@ -2430,7 +2412,7 @@ class SeuratReader:
             maximum_index_bytes=self._maximumIndexBytes,
         )
 
-        self._activeIdentity: SeuratMetadataColumn | None = None
+        self._activeIdentity: SeuratMetadataColumn
         self._activeIdentityError: SeuratImportError | None = None
         try:
             self._activeIdentity = self._build_active_identity(root)
@@ -2930,10 +2912,7 @@ class SeuratReader:
             counts_node,
             document=self._document,
             object_path=f"{object_path}/counts",
-            require_both=True,
         )
-        assert feature_ids is not None
-        assert cell_ids is not None
         if (len(feature_ids), len(cell_ids)) != source.shape:
             raise _error(
                 "counts Dimnames conflict with the matrix dimensions",
@@ -3033,10 +3012,7 @@ class SeuratReader:
             node,
             document=self._document,
             object_path=object_path,
-            require_both=True,
         )
-        assert row_ids is not None
-        assert layer_names is not None
         _validate_unique_ids(
             row_ids,
             object_path=f"{object_path}/Dimnames/0",
@@ -3433,10 +3409,7 @@ class SeuratReader:
             node,
             document=self._document,
             object_path=object_path,
-            require_both=True,
         )
-        assert rows is not None
-        assert columns is not None
         if len(rows) != shape[0] or len(columns) != shape[1]:
             raise _error(
                 "matrix dimensions conflict with Dimnames",

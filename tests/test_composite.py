@@ -1,4 +1,6 @@
+import copy
 import hashlib
+import json
 import shutil
 import tracemalloc
 from contextlib import contextmanager
@@ -6,6 +8,9 @@ from contextlib import contextmanager
 import numpy as np
 import pytest
 import zarr
+from zarr.abc.store import OffsetByteRequest, RangeByteRequest, SuffixByteRequest
+from zarr.core.buffer import default_buffer_prototype
+from zarr.core.sync import sync
 from zarr.storage import FsspecStore, LocalStore
 
 from cytearc import DataStore
@@ -14,6 +19,23 @@ from cytearc.storage.count_matrix import CountMatrixPolicy
 from cytearc.storage.schema import create_cell_data, create_zarr_count_assay
 from cytearc.writers.counts_t import finalize_writer_counts_t
 from tests.storage_helpers import finalize_test_counts
+
+
+@pytest.fixture
+def composite_adapter(sources, tmp_path, monkeypatch):
+    import cytearc.composite.create as creation
+
+    monkeypatch.setattr(
+        creation, "DEFAULT_COUNT_MATRIX_POLICY", CountMatrixPolicy(48, 8)
+    )
+    joint = create_composite(
+        sources,
+        at=tmp_path / "joint.zarr",
+        features="union",
+        rows={"a": [0, 1, 2, 3], "b": [0, 1, 2]},
+    )
+    yield joint
+    joint.z.store.close()
 
 
 def _write_source(
@@ -1310,3 +1332,421 @@ def test_pipeline_matches_materialized_counts_and_reopens(tmp_path, monkeypatch)
     saved_run = reopened.pipeline.open(run_id=actual_run.run_id)
     assert saved_run.status == "completed"
     assert dict(saved_run) == dict(actual_run)
+
+
+def test_composite_store_inventory_matches_readable_objects(composite_adapter):
+    from itertools import product
+    from math import ceil
+
+    joint = composite_adapter
+    store = joint.z.store
+    prototype = default_buffer_prototype()
+    physical = {
+        str(path.relative_to(store.root))
+        for path in store.root.rglob("*")
+        if path.is_file()
+    }
+    virtual = set()
+    for name in ("counts", "countsT"):
+        array = joint.RNA.matrixGroup[name]
+        virtual.add(f"RNA/{name}/zarr.json")
+        grid = [
+            range(ceil(n / s)) for n, s in zip(array.shape, array.shards, strict=True)
+        ]
+        virtual.update(f"RNA/{name}/c/{r}/{c}" for r, c in product(*grid))
+    expected = physical | virtual
+
+    async def check():
+        keys = [key async for key in store.list()]
+        assert len(keys) == len(set(keys))
+        assert set(keys) == expected
+        for key in keys:
+            assert await store.exists(key)
+            value = await store.get(key, prototype)
+            assert value is not None
+            assert await store.getsize(key) == len(value.to_bytes())
+        for prefix in ("", "RNA", "RNA/counts/", "RNA/counts/c/", "absent"):
+            assert set([key async for key in store.list_prefix(prefix)]) == {
+                key for key in expected if key.startswith(prefix)
+            }
+            assert await store.is_empty(prefix) == (
+                not any(key.startswith(prefix) for key in expected)
+            )
+        for prefix in (
+            "",
+            "RNA",
+            "RNA/counts",
+            "RNA/counts/c",
+            "RNA/counts/c/0",
+            "RNA/counts/c/0/0",
+            "RNA/counts/c/999",
+            "RNA/counts/c/nope",
+        ):
+            normalized = prefix.rstrip("/") + "/" if prefix else ""
+            expected_children = {
+                key[len(normalized) :].split("/", 1)[0]
+                for key in expected
+                if key.startswith(normalized)
+            }
+            children = [key async for key in store.list_dir(prefix)]
+            assert len(children) == len(set(children))
+            assert set(children) == expected_children
+        for key in ("RNA/counts/c/999/0", "RNA/counts/c/nope/0", "absent"):
+            assert not await store.exists(key)
+            assert await store.get(key, prototype) is None
+            with pytest.raises(FileNotFoundError):
+                await store.getsize(key)
+
+    sync(check())
+
+
+def test_composite_store_batches_preserve_bytes_and_missing_keys(composite_adapter):
+    store = composite_adapter.z.store
+    prototype = default_buffer_prototype()
+    ranges = [None, RangeByteRequest(2, 9), OffsetByteRequest(5), SuffixByteRequest(7)]
+
+    async def check():
+        for key in ("RNA/counts/zarr.json", "RNA/counts/c/0/0", "zarr.json"):
+            body = (await store.get(key, prototype)).to_bytes()
+            expected = [body, body[2:9], body[5:], body[-7:]]
+            partial = await store.get_partial_values(
+                prototype, [(key, r) for r in ranges]
+            )
+            assert [value.to_bytes() for value in partial] == expected
+            batches = [
+                batch
+                async for batch in store.get_ranges(key, ranges, prototype=prototype)
+            ]
+            actual = {
+                index: value.to_bytes() for batch in batches for index, value in batch
+            }
+            assert actual == dict(enumerate(expected))
+        requests = [
+            (key, prototype, None)
+            for key in ("zarr.json", "RNA/counts/zarr.json", "missing")
+        ]
+        results = {key: value async for key, value in store._get_many(requests)}
+        assert results["missing"] is None
+        for key in ("zarr.json", "RNA/counts/zarr.json"):
+            assert (
+                results[key].to_bytes() == (await store.get(key, prototype)).to_bytes()
+            )
+        assert await store.get_partial_values(prototype, [("missing", None)]) == [None]
+        with pytest.raises(TypeError, match="Unsupported byte request"):
+            await store.get("RNA/counts/zarr.json", prototype, object())
+
+    sync(check())
+
+
+def test_composite_store_mutations_preserve_bindings_and_sources(
+    composite_adapter, sources
+):
+    joint = composite_adapter
+    store = joint.z.store
+    prototype = default_buffer_prototype()
+    before = _tree_digest(store.root)
+    source_digests = {
+        name: _tree_digest(source.z.store.root) for name, source in sources.items()
+    }
+
+    async def check():
+        original = (await store.get("zarr.json", prototype)).to_bytes()
+        changed = json.loads(original)
+        del changed["attributes"]["composite"]
+        consolidated = json.loads(original)
+        consolidated["consolidated_metadata"] = {}
+        for document, message in (
+            (changed, "bindings are immutable"),
+            (consolidated, "cannot be consolidated"),
+        ):
+            with pytest.raises(PermissionError, match=message):
+                await store.set(
+                    "zarr.json",
+                    prototype.buffer.from_bytes(json.dumps(document).encode()),
+                )
+        await store.set("zarr.json", prototype.buffer.from_bytes(original))
+        for key in (
+            "zarr.json",
+            "RNA/counts/zarr.json",
+            "_composite/sourceRows/zarr.json",
+        ):
+            with pytest.raises(PermissionError):
+                await store.delete(key)
+        for prefix in ("", "RNA", "RNA/counts", "_composite"):
+            with pytest.raises(PermissionError):
+                await store.delete_dir(prefix)
+        with pytest.raises(PermissionError, match="cannot be cleared"):
+            await store.clear()
+        readonly = store.with_read_only(True)
+        try:
+            with pytest.raises(PermissionError, match="read-only"):
+                await readonly.set("result", prototype.buffer.from_bytes(b"new"))
+            with pytest.raises(PermissionError):
+                await readonly.delete("result")
+            with pytest.raises(PermissionError):
+                await readonly.delete_dir("result")
+        finally:
+            readonly.close()
+        assert _tree_digest(store.root) == before
+        await store._set_many(
+            (key, prototype.buffer.from_bytes(value))
+            for key, value in (("result/value", b"one"), ("result/other", b"two"))
+        )
+        await store.set_if_not_exists(
+            "result/value", prototype.buffer.from_bytes(b"replacement")
+        )
+        assert (await store.get("result/value", prototype)).to_bytes() == b"one"
+        await store.delete("result/value")
+        assert not await store.exists("result/value")
+        await store.delete_dir("result")
+        assert await store.is_empty("result")
+
+    sync(check())
+    assert _tree_digest(store.root) == before
+    assert {
+        name: _tree_digest(source.z.store.root) for name, source in sources.items()
+    } == source_digests
+
+
+def test_composite_store_lifecycle_and_routing_contracts(composite_adapter, sources):
+    from zarr.abc.store import _store_supports_sync_io
+
+    from cytearc.storage.stores import is_remote_datastore
+
+    joint = composite_adapter
+    store = joint.z.store
+    assert not _store_supports_sync_io(store)
+    for method in (store.get_sync, store.set_sync, store.delete_sync):
+        with pytest.raises(TypeError, match="asynchronous routed IO"):
+            method()
+    with pytest.raises(RuntimeError, match="already finalized"):
+        store.seal(joint.z)
+    assert not is_remote_datastore(None, joint.RNA.matrixGroup["counts"])
+    assert not is_remote_datastore(None, joint.z["cellData"])
+    with store as opened:
+        np.testing.assert_array_equal(
+            zarr.open_array(store=opened, path="RNA/counts", mode="r")[:],
+            joint.RNA.matrixGroup["counts"][:],
+        )
+    assert not store._store._is_open
+    for source in sources.values():
+        assert source.z.store._is_open
+        assert source.RNA.matrixGroup["counts"][0, 0] >= 0
+
+
+def test_composite_shard_padding_and_missing_array_metadata(composite_adapter, sources):
+    from cytearc.composite.store import CompositeStore
+
+    joint = composite_adapter
+    prototype = default_buffer_prototype()
+    building = CompositeStore(
+        LocalStore(joint.z.store.root),
+        copy.deepcopy(joint.z.store.record),
+        {name: source.z for name, source in sources.items()},
+        constructing=True,
+    )
+    try:
+        document = copy.deepcopy(building.record["arrays"]["RNA/counts"])
+        document["chunk_grid"]["configuration"]["chunk_shape"] = [16, 16]
+        sync(
+            building.set(
+                "RNA/counts/zarr.json",
+                prototype.buffer.from_bytes(json.dumps(document).encode()),
+            )
+        )
+        array = zarr.open_array(store=building, path="RNA/counts", mode="r")
+        np.testing.assert_array_equal(array[:], joint.RNA.matrixGroup["counts"][:])
+        chunk_bytes = np.prod(array.chunks) * array.dtype.itemsize
+        offset = (8 // array.chunks[0]) * (16 // array.chunks[1]) * int(chunk_bytes)
+        padding = sync(
+            building.get(
+                "RNA/counts/c/0/0",
+                prototype,
+                RangeByteRequest(offset, offset + int(chunk_bytes)),
+            )
+        )
+        assert padding.to_bytes() == bytes(int(chunk_bytes))
+        sync(building.delete_dir("RNA/countsT"))
+        assert not sync(building.exists("RNA/countsT/zarr.json"))
+        with pytest.raises(FileNotFoundError):
+            sync(building.getsize("RNA/countsT/zarr.json"))
+        sync(building.delete_dir("RNA/counts"))
+        building.constructing = False
+        with pytest.raises(ValueError, match="array metadata is missing"):
+            sync(building.get("RNA/counts/zarr.json", prototype))
+    finally:
+        building.close()
+
+
+@pytest.mark.parametrize(
+    "problem,message",
+    [
+        ("record", "Invalid composite record"),
+        ("sources", "no source bindings"),
+        ("arrays", "Invalid composite array metadata"),
+        ("codec", "Invalid composite array codecs"),
+        ("layout", "paired sharded layout"),
+        ("maps", "Invalid composite mapping fingerprints"),
+        ("map_shape", "Invalid composite mapping: rowSources"),
+        ("map_dtype", "Invalid composite mapping: rowSources"),
+        ("binding", "Invalid composite source binding"),
+        ("duplicate", "unique and nonempty"),
+        ("empty_name", "unique and nonempty"),
+        ("location", "persistent locations"),
+        ("mounted", "Mounted datastores cannot be composite sources"),
+    ],
+)
+def test_composite_reopen_rejects_invalid_saved_contract(
+    composite_adapter, sources, problem, message
+):
+    path = composite_adapter.z.store.root
+    root = zarr.open_group(path, mode="r+")
+    record = copy.deepcopy(root.attrs["composite"])
+    if problem == "record":
+        record["unexpected"] = True
+    elif problem == "sources":
+        record["sources"] = []
+    elif problem == "arrays":
+        record["arrays"] = {}
+    elif problem == "codec":
+        record["arrays"]["RNA/counts"]["codecs"][0]["configuration"][
+            "index_location"
+        ] = "start"
+    elif problem == "layout":
+        record["arrays"]["RNA/counts"]["codecs"][0]["name"] = "bytes"
+    elif problem == "maps":
+        record["maps"] = {}
+    elif problem in {"map_shape", "map_dtype"}:
+        mappings = root["_composite"]
+        values = mappings["rowSources"][:]
+        del mappings["rowSources"]
+        mappings.create_array(
+            "rowSources",
+            data=values[:-1] if problem == "map_shape" else values.astype(np.float64),
+        )
+    elif problem == "binding":
+        record["sources"][1]["unexpected"] = True
+    elif problem == "duplicate":
+        record["sources"][1]["name"] = record["sources"][0]["name"]
+    elif problem == "empty_name":
+        record["sources"][1]["name"] = ""
+    elif problem == "location":
+        record["sources"][1]["location"] = ""
+    elif problem == "mounted":
+        sources["b"].z.attrs["matrixSource"] = {}
+    root.attrs["composite"] = record
+    before = _tree_digest(path)
+    with pytest.raises(ValueError, match=message):
+        DataStore(str(path), nthreads=1)
+    assert _tree_digest(path) == before
+
+
+@pytest.mark.parametrize(
+    "problem,error,message",
+    [
+        ("empty", ValueError, "At least one source"),
+        ("features", ValueError, "features must be"),
+        ("name", ValueError, "Source names"),
+        ("type", TypeError, "open DataStore"),
+        ("selection", ValueError, "existing source"),
+        ("remote", ValueError, "destination must be a local path"),
+        ("existing", FileExistsError, "already exists"),
+        ("mounted", ValueError, "Mounted and composite sources"),
+        ("assay", ValueError, "has no assay"),
+        ("overlap", ValueError, "lies inside the Zarr store"),
+        ("overlap_without_root_metadata", ValueError, "must not overlap a source"),
+        ("assay_type", ValueError, "different types"),
+        ("empty_selection", ValueError, "at least one selected cell"),
+        ("budget", MemoryError, "mappings exceed mem_budget"),
+    ],
+)
+def test_composite_invalid_creation_preserves_sources(
+    sources, tmp_path, problem, error, message
+):
+    inputs = sources
+    destination = tmp_path / "rejected.zarr"
+    options = {"features": "union"}
+    if problem == "empty":
+        inputs = {}
+    elif problem == "features":
+        options["features"] = "invalid"
+    elif problem == "name":
+        inputs = {"bad__name": sources["a"]}
+    elif problem == "type":
+        inputs = {"a": sources["a"].z}
+    elif problem == "selection":
+        options["rows"] = {"missing": [0]}
+    elif problem == "remote":
+        destination = "s3://composite-test/rejected.zarr"
+    elif problem == "existing":
+        destination.mkdir()
+    elif problem == "mounted":
+        sources["a"].z.attrs["matrixSource"] = {}
+    elif problem == "assay":
+        options["assay"] = "missing"
+    elif problem in {"overlap", "overlap_without_root_metadata"}:
+        destination = sources["a"].z.store.root / "rejected.zarr"
+        if problem == "overlap_without_root_metadata":
+            (sources["a"].z.store.root / "zarr.json").unlink()
+    elif problem == "assay_type":
+        inputs = {
+            **sources,
+            "b": DataStore(
+                sources["b"].zarr_loc, assay_types={"RNA": "ATAC"}, nthreads=1
+            ),
+        }
+    elif problem == "empty_selection":
+        options["rows"] = {"a": [], "b": []}
+    elif problem == "budget":
+        options["mem_budget"] = 1
+    before = {
+        name: _tree_digest(source.z.store.root) for name, source in sources.items()
+    }
+    with pytest.raises(error, match=message):
+        create_composite(inputs, at=destination, **options)
+    assert {
+        name: _tree_digest(source.z.store.root) for name, source in sources.items()
+    } == before
+    if problem == "existing":
+        assert list(destination.iterdir()) == []
+    elif problem != "remote":
+        assert not destination.exists()
+
+
+def test_composite_source_locations_require_persistent_credential_free_paths(
+    sources,
+):
+    from types import SimpleNamespace
+
+    from zarr.storage import MemoryStore, WrapperStore
+
+    from cytearc.composite.create import _source_location
+
+    local = WrapperStore(LocalStore(sources["a"].z.store.root))
+    source = SimpleNamespace(zarr_loc=local, z=zarr.open_group(store=local, mode="r"))
+    assert _source_location(source) == str(sources["a"].z.store.root.resolve())
+    memory = SimpleNamespace(zarr_loc=MemoryStore(), z=zarr.group())
+    with pytest.raises(ValueError, match="persistent filesystem location"):
+        _source_location(memory)
+    for location in (
+        "https://user@example.org/counts.zarr",
+        "https://example.org/counts.zarr?token=secret",
+    ):
+        with pytest.raises(
+            ValueError, match="cannot contain user information or query parameters"
+        ):
+            _source_location(SimpleNamespace(zarr_loc=location))
+
+
+def test_composite_layout_rejects_budget_smaller_than_one_read(sources):
+    from cytearc.composite.create import _fit_count_layout
+
+    array = sources["a"].RNA.matrixGroup["counts"]
+    with pytest.raises(MemoryError, match="count reads cannot fit within mem_budget"):
+        _fit_count_layout(
+            *array.shape,
+            array.dtype.str,
+            {"counts": [array]},
+            mapping_width=4,
+            memory_bytes=1,
+        )

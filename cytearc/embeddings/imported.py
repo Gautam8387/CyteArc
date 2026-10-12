@@ -346,8 +346,6 @@ def _write_feature_ids(
     expected_fingerprint: str,
     block_rows: int,
 ) -> zarr.Array:
-    if len(source.shape) != 1:
-        raise ValueError("feature_ids must be one-dimensional")
     if source.dtype.hasobject:
         if not source.reusable:
             raise ValueError(
@@ -454,7 +452,7 @@ def write_imported_coordinates(
     )
     _validate_numeric_source(data_source, "coordinates", 2)
     dims = int(data_source.shape[1])
-    _selection, selected_count, ordered_cell_ids_fingerprint = _selection_alignment(
+    _selection, _selected_count, ordered_cell_ids_fingerprint = _selection_alignment(
         root,
         cell_selection=cell_selection,
         source_cell_ids=source_cell_ids,
@@ -595,8 +593,6 @@ def write_imported_coordinates(
                     block_rows,
                 )
     validate_imported_coordinates_artifact(root, planned.ref)
-    if selected_count != data_source.shape[0]:
-        raise RuntimeError("Imported coordinate selection changed during writing")
     return planned.ref
 
 

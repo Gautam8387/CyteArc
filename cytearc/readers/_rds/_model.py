@@ -146,8 +146,6 @@ def iter_attributes(node: RNode) -> Iterator[tuple[str, RNode]]:
         if name is None:
             continue
         pair = cell.value
-        if not isinstance(pair, PairValue):
-            continue
         yield name, pair.car
 
 

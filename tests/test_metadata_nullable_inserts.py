@@ -9,7 +9,7 @@ import zarr
 from zarr.storage import MemoryStore
 
 from cytearc.metadata import MetaData
-from cytearc.metadata.encoding import missing_rows, nullable_values
+from cytearc.metadata.encoding import missing_placeholder, missing_rows, nullable_values
 from cytearc.metadata.rows import metadata_column_fingerprint, metadata_missing_mask
 from cytearc.storage.selections import _stored_selection_summary
 from cytearc.writers._store import write_metadata_column
@@ -21,6 +21,19 @@ _DAYS = np.array(["2020-01-01", "2020-01-02"], dtype="datetime64[D]")
 _SECONDS = np.array([1, 2], dtype="timedelta64[s]")
 _NANOSECONDS = np.array([1, 2], dtype="timedelta64[ns]")
 _NAT = np.datetime64("NaT", "ns")
+
+
+@pytest.mark.parametrize(("dtype", "expected"), [("U3", ""), ("S3", b"")])
+def test_text_missing_placeholders_keep_the_column_dtype(dtype, expected):
+    placeholder = missing_placeholder(np.dtype(dtype))
+    assert placeholder == expected
+    assert np.asarray([placeholder], dtype=dtype).dtype == np.dtype(dtype)
+
+
+@pytest.mark.parametrize("dtype", ["O", "V8"])
+def test_missing_placeholders_reject_unencoded_objects_and_records(dtype):
+    with pytest.raises(TypeError, match="cannot hold missing values"):
+        missing_placeholder(np.dtype(dtype))
 
 
 def _table() -> MetaData:

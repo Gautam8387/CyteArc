@@ -2098,3 +2098,25 @@ def test_h5ad_table_column_names_of_a_node_that_is_not_a_table(tmp_path):
         h5["var"] = np.dtype("f8")
         assert isinstance(h5["var"], h5py.Datatype)
         assert table_column_names(h5["var"]) == []
+
+
+def test_h5ad_inspection_ignores_absent_and_noncolumn_members(tmp_path):
+    import h5py
+
+    from cytearc.readers._h5ad_inspect import _read_column
+
+    with h5py.File(tmp_path / "columns.h5ad", "w") as handle:
+        table = handle.create_group("obs")
+        table.create_group("metadata")
+        table.create_dataset("names", data=np.array([b"c1", b"c2"]))
+        records = handle.create_dataset(
+            "var", data=np.array([(b"g1",)], dtype=[("names", "S2")])
+        )
+        plain = handle.create_dataset("plain", data=np.array([1, 2]))
+
+        assert _read_column(table, "absent") is None
+        assert _read_column(table, "metadata") is None
+        assert _read_column(records, "absent") is None
+        assert _read_column(plain, "names") is None
+        np.testing.assert_array_equal(_read_column(table, "names"), [b"c1", b"c2"])
+        np.testing.assert_array_equal(_read_column(records, "names"), [b"g1"])

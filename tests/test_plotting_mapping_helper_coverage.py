@@ -201,6 +201,9 @@ def test_plot_data_rejects_malformed_artifact_inputs(monkeypatch) -> None:
 
 
 def test_plot_data_grouping_and_layout_validation(monkeypatch) -> None:
+    for keys in ([], ["a", "b", "c"]):
+        with pytest.raises(ValueError, match="one or two keys"):
+            plotting_data._group_roles(keys)
     store = SimpleNamespace(zw=object())
     groups = _ref("cluster_labels", "4", assay=None)
     selection = _ref("cell_selection", "5", assay=None)

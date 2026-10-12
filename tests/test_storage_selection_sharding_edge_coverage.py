@@ -18,6 +18,31 @@ from cytearc.storage.refs import ArtifactRef
 from cytearc.storage.selections import ValidatedStoredSelection
 
 
+@pytest.mark.parametrize(
+    ("dtype", "operation", "error", "message"),
+    [
+        ("float32", None, ValueError, "needs the operation"),
+        ("uint32", "normalize", TypeError, "needs a floating-point destination"),
+    ],
+)
+def test_finite_write_rejects_invalid_contract_before_producing_values(
+    dtype, operation, error, message
+):
+    root = zarr.open_group(store=MemoryStore(), mode="w")
+    values = np.arange(6, dtype=dtype).reshape(3, 2)
+    destination = root.create_array("values", data=values, chunks=(2, 2))
+
+    def produce(start, stop):
+        pytest.fail("An invalid finite-value contract must not start computation")
+
+    with pytest.raises(error, match=message):
+        sharding.write_dense_in_shard_rows(
+            destination, produce, requireFinite=True, operation=operation
+        )
+
+    np.testing.assert_array_equal(destination[:], values)
+
+
 def _selection_root(
     values: np.ndarray | None = None,
 ) -> tuple[zarr.Group, ArtifactRef]:

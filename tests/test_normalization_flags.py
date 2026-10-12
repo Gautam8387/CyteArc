@@ -56,6 +56,16 @@ def _counts() -> dict[str, np.ndarray]:
 COUNTS = _counts()
 
 
+def test_atac_default_normalization_fits_only_active_cells(store):
+    keep = np.arange(N_CELLS) % 3 != 0
+    store.cells.update_key(keep, "I")
+    selected = COUNTS["ATAC"][keep].astype(np.float64)
+    totals = selected.sum(axis=1)
+    expected = selected / np.where(totals == 0, 1, totals)[:, None]
+    expected *= np.log2(1 + len(selected) / (1 + (selected > 0).sum(axis=0)))
+    np.testing.assert_allclose(store.ATAC.normed().compute(), expected)
+
+
 def scaled_by_totals(assay: Any, counts: Any) -> Any:
     """A linear custom RNA normalizer that reads the totals ``normed`` sets."""
     return 50.0 * counts / assay.scalar.reshape(-1, 1)

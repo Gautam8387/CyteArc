@@ -414,14 +414,21 @@ def test_pipeline_plot_dataframe_and_head_edge_paths() -> None:
     with pytest.raises(KeyError, match="'missing' was not captured"):
         cells._field_dtype("missing")
     assert cells._field_display("I") is None
+    assert cells._field_display("names") is None
     assert cells._field_display("clusters") == {"kind": "categorical"}
     with pytest.raises(KeyError, match="'missing' was not captured"):
         cells._field_display("missing")
 
     # Fields without a missing mask reach plots unchanged.
     np.testing.assert_array_equal(cells._plot_fetch_all("clusters"), [0, -1, 2, -1])
+    np.testing.assert_array_equal(
+        cells._plot_fetch_all("ids"), ["c1", "c2", "c3", "c4"]
+    )
+    np.testing.assert_array_equal(cells._plot_fetch_selected("I"), [True, True])
     np.testing.assert_array_equal(cells._plot_fetch_selected("ids"), ["c1", "c3"])
     assert cells._selected_prefix_indices(0).size == 0
+    with pytest.raises(TypeError, match="column must be a non-empty string"):
+        cells._descriptor("")
 
     for operation, error_type, message in (
         (lambda: cells.fetch_all(""), TypeError, "^column must be a non-empty string$"),

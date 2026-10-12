@@ -56,7 +56,8 @@ class HfReadStore(FsspecStore):
         prototype: BufferPrototype,
         byte_range: ByteRequest | None = None,
     ) -> Buffer | None:
-        for attempt in range(4):
+        attempt = 0
+        while True:
             try:
                 return await super().get(key, prototype, byte_range)
             except HfHubHTTPError as error:
@@ -70,7 +71,7 @@ class HfReadStore(FsspecStore):
                 if delay > 300:
                     raise
                 await asyncio.sleep(delay)
-        raise AssertionError("Unreachable read retry state")
+                attempt += 1
 
     async def _read_metadata(
         self, key: str, prototype: BufferPrototype

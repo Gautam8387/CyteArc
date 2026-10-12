@@ -2001,3 +2001,54 @@ def test_selected_row_order_reports_a_malformed_alignment_payload(
 
     assert caught.value.code == "corrupt_payload"
     assert caught.value.context == {"artifact_id": "b" * 64}
+
+
+def test_imported_coordinate_payload_disappearing_during_validation(monkeypatch):
+    from cytearc.embeddings import imported_storage
+
+    root, selection, cell_ids, mask = _root_with_selection()
+    ref, _ = _write_coordinate_fixture(root, selection, cell_ids, mask)
+    validate_selection = imported_storage.validate_stored_selection_integrity
+
+    def remove_payload(*args, **kwargs):
+        validated = validate_selection(*args, **kwargs)
+        del root[artifact_path(ref)]
+        return validated
+
+    monkeypatch.setattr(
+        imported_storage, "validate_stored_selection_integrity", remove_payload
+    )
+    with pytest.raises(ArtifactResolutionError, match="payload is malformed") as caught:
+        validate_imported_coordinates_artifact(root, ref)
+    assert caught.value.code == "corrupt_payload"
+    assert isinstance(caught.value.__cause__, KeyError)
+    assert artifact_path(ref) not in root
+
+
+def test_imported_coordinate_new_payload_is_rejected_before_reading(monkeypatch):
+    from cytearc.embeddings import imported_storage
+
+    root, selection, cell_ids, mask = _root_with_selection()
+    ref, _ = _write_coordinate_fixture(root, selection, cell_ids, mask)
+    fingerprint = imported_storage.payload_fingerprint
+    reads = []
+
+    def add_payload_after_read(group, name):
+        reads.append(name)
+        digest = fingerprint(group, name)
+        if name == "data":
+            group.create_array("stdev", data=np.ones(3))
+        return digest
+
+    monkeypatch.setattr(imported_storage, "payload_fingerprint", add_payload_after_read)
+    try:
+        with pytest.raises(
+            ArtifactResolutionError, match="fingerprint for 'stdev' is missing"
+        ) as caught:
+            validate_imported_coordinates_artifact(root, ref)
+        assert caught.value.code == "corrupt_payload"
+        assert caught.value.context["payload"] == "stdev"
+        assert reads == ["data"]
+        np.testing.assert_array_equal(root[artifact_path(ref)]["stdev"][:], np.ones(3))
+    finally:
+        root.store.close()

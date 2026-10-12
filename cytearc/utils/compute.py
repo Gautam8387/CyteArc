@@ -2,7 +2,7 @@ import itertools
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import numpy as np
 
@@ -46,9 +46,7 @@ def exit_thread_limit(token: int) -> None:
     global _original_thread_limits
     with _thread_limit_lock:
         del _active_thread_limits[token]
-        original = _original_thread_limits
-        if original is None:
-            return
+        original = cast(Any, _original_thread_limits)
         requested = [
             limits for limits in _active_thread_limits.values() if limits is not None
         ]

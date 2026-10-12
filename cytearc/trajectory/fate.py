@@ -138,8 +138,6 @@ def _normalize_pseudotime(values: np.ndarray) -> np.ndarray:
     normalized = pseudotime / scale
     normalized -= scaled_minimum
     normalized /= value_range
-    if not np.isfinite(normalized).all():
-        raise ValueError("Pseudotime values could not be normalized safely")
     np.clip(normalized, 0.0, 1.0, out=normalized)
     return normalized
 

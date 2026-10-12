@@ -30,6 +30,35 @@ from cytearc.writers.counts_t import finalize_writer_counts_t
 from tests.storage_helpers import finalize_test_counts
 
 
+@pytest.mark.parametrize("piece_rows", [1, 2, 10])
+def test_spreading_measured_rows_ignores_empty_blocks_and_keeps_missing_rows(
+    piece_rows,
+):
+    measured = np.array([False, True, False, True, False, False, True])
+    values = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+    blocks = [
+        np.empty((0, 2)),
+        values[:1],
+        np.empty((0, 2)),
+        values[1:],
+        np.empty((0, 2)),
+    ]
+
+    pieces = list(spread_measured_rows(iter(blocks), measured, 2, piece_rows))
+
+    expected = np.full((len(measured), 2), np.nan)
+    expected[measured] = values
+    np.testing.assert_array_equal(
+        np.concatenate([block for _, block in pieces]), expected
+    )
+    assert all(0 < len(block) <= piece_rows for _, block in pieces)
+    offset = 0
+    for start, block in pieces:
+        assert start == offset
+        offset += len(block)
+    assert offset == len(measured)
+
+
 @pytest.fixture(scope="module", params=["columns", "rows", "membership"])
 def feature_store(request):
     shape = (45, 25) if request.param == "rows" else (173, 401)

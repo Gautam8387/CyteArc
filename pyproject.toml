@@ -142,6 +142,7 @@ norecursedirs = [
 source = ["cytearc"]
 omit = ["cytearc/_version.py"]
 parallel = true
+patch = ["subprocess"]
 # sys.monitoring measures the same lines with less overhead than the C tracer
 # on Python 3.13; coverage already uses it on Python 3.14 and newer.
 core = "sysmon"

@@ -1011,11 +1011,6 @@ def distribution(
             raise NotImplementedError(
                 "distribution mean coloring currently supports only linear color scales"
             )
-        if color_scale.scope not in ("shared", "panel"):
-            raise ValueError(
-                "color_scale.scope must be 'shared' or 'panel' for mean coloring; "
-                f"got {color_scale.scope!r}"
-            )
         if color_scale.scope == "panel" and (
             color_scale.quantiles is not None
             or color_scale.vmin is not None

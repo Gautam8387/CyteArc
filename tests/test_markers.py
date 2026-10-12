@@ -2267,6 +2267,27 @@ def test_marker_slot_validation_checks_every_group_against_its_counts():
         _validate_marker_slot(slot, names)
 
 
+def test_marker_slot_rejects_a_group_replaced_after_enumeration(monkeypatch):
+    import zarr
+
+    from cytearc.features.markers.table import _validate_marker_slot
+
+    slot, _ = _make_canonical_marker_slot()
+    group_keys = zarr.Group.group_keys
+
+    def replace_after_listing(group, *args, **kwargs):
+        yield from group_keys(group, *args, **kwargs)
+        if group is slot:
+            del slot["1"]
+            slot.create_array("1", data=np.ones(1))
+
+    monkeypatch.setattr(zarr.Group, "group_keys", replace_after_listing)
+
+    with pytest.raises(TypeError, match="Marker group '1' must be a group"):
+        _validate_marker_slot(slot, np.array(["g0", "g1"]))
+    assert isinstance(slot["1"], zarr.Array)
+
+
 @pytest.fixture(scope="module")
 def pbmc_marker_table(datastore_zarr_root, tmp_path_factory):
     """Return a PBMC store with a two-group marker table over eight features."""

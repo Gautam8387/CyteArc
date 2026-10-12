@@ -998,6 +998,32 @@ def test_raster_validates_quantiles_pixels_and_subset_column():
         raster_from_metadata(cells, x_key="x", y_key="y", subset_by="nope")
 
 
+def test_raster_rechecks_subset_dtype_between_passes(monkeypatch):
+    from cytearc.plotting._raster import raster_from_metadata
+
+    cells = _GuardedMeta(
+        {
+            "I": np.ones(4, dtype=bool),
+            "x": np.arange(4, dtype=float),
+            "y": np.arange(4, dtype=float),
+            "subset": np.ones(4, dtype=bool),
+        }
+    )
+    read = cells.iter_row_blocks
+    passes = []
+
+    def mutate_between_passes(**kwargs):
+        passes.append(len(passes) + 1)
+        if len(passes) == 2:
+            cells._arrays["subset"] = _GuardedZarrArray(np.ones(4, dtype=int))
+        yield from read(**kwargs)
+
+    monkeypatch.setattr(cells, "iter_row_blocks", mutate_between_passes)
+    with pytest.raises(TypeError, match="subset_by 'subset' must be boolean"):
+        raster_from_metadata(cells, x_key="x", y_key="y", subset_by="subset")
+    assert passes == [1, 2]
+
+
 def test_raster_without_color_encodes_log_density():
     from cytearc.plotting._raster import raster_from_metadata
 

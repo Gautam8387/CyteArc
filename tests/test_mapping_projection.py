@@ -972,6 +972,7 @@ def test_projection_loader_rejects_malformed_or_extra_payload(
         ("selection_count", "payload no longer matches"),
         ("diagnostics_type", "diagnostics must be a mapping"),
         ("created_at", "created_at_ns"),
+        ("created_at_none", "created_at_ns"),
     ],
 )
 def test_projection_loader_rejects_shape_dtype_and_value_tampering(
@@ -1029,6 +1030,8 @@ def test_projection_loader_rejects_shape_dtype_and_value_tampering(
         artifact_group(root, cell_selection)["values"][0] = False
     elif tamper == "diagnostics_type":
         group.attrs["diagnostics"] = "invalid"
+    elif tamper == "created_at_none":
+        group.attrs["created_at_ns"] = None
     else:
         group.attrs["created_at_ns"] = 0
 
@@ -1568,6 +1571,31 @@ def test_projection_feature_selection_must_be_the_overlap_of_its_reference() -> 
     )
     with pytest.raises(ValueError, match="feature identifiers are malformed"):
         load_projection(root, ref, reference=without_features)
+
+
+@pytest.mark.parametrize("malformed", ["invalid", {}])
+def test_projection_rechecks_lineage_changed_after_selection_validation(
+    monkeypatch, malformed
+):
+    root, cells, features = _query_inputs()
+    reference, _ = _mapping_reference()
+    resolve_selection = projection_storage.resolve_feature_selection
+
+    def change_after_validation(*args, **kwargs):
+        selected = resolve_selection(*args, **kwargs)
+        group = artifact_group(root, features)
+        provenance = dict(group.attrs["provenance"])
+        provenance["inputs"] = dict(provenance["inputs"], mapping_reference=malformed)
+        group.attrs["provenance"] = provenance
+        return selected
+
+    monkeypatch.setattr(
+        projection_storage, "resolve_feature_selection", change_after_validation
+    )
+
+    with pytest.raises(ValueError, match="feature-selection reference is malformed"):
+        plan_projection(root, **_plan_arguments(cells, features, reference))
+    assert not list_artifacts(root, scope="assay", assay="RNA", kind="projection")
 
 
 @pytest.mark.parametrize("name", ["payload_fingerprint", "model_digest"])

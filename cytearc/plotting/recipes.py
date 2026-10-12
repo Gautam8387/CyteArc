@@ -127,8 +127,6 @@ def _external_kwargs(
         if not isinstance(key, str) or _LOWER_CAMEL_KEY.fullmatch(key) is None:
             raise ValueError(f"{context} keys must use lower camelCase")
         python_key = _camel_to_snake(key)
-        if python_key in converted:
-            raise ValueError(f"{context} contains duplicate key {python_key!r}")
         converted[python_key] = item
 
     plot = _resolve_plot(plot_name)

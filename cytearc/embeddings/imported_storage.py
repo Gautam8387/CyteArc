@@ -406,17 +406,6 @@ def _validate_imported_coordinates_artifact(
         scope="assay",
         assay=coordinates.assay,
     )
-    if coordinates.assay is None:
-        raise ArtifactResolutionError(
-            "Imported-coordinate artifact has no assay",
-            code="wrong_scope",
-            context={
-                "artifact_id": coordinates.artifact_id,
-                "actual_scope": coordinates.scope,
-                "actual_assay": coordinates.assay,
-                "actual_kind": coordinates.kind,
-            },
-        )
     error_context = {
         "assay": coordinates.assay,
         "artifact_id": coordinates.artifact_id,

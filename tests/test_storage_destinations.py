@@ -101,11 +101,12 @@ def test_overwrite_replaces_an_unprepared_store(tmp_path: Path) -> None:
     assert _files(location).keys() == {"zarr.json"}
 
 
-@pytest.mark.parametrize("case", ["root", "workspace", "mounted"])
+@pytest.mark.parametrize("case", ["root", "workspace", "mounted", "composite"])
 def test_overwrite_never_replaces_a_prepared_store(case) -> None:
     store = MemoryStore()
-    if case == "mounted":
-        zarr.open_group(store=store, mode="w", attributes={MATRIX_SOURCE_ATTR: {}})
+    if case in {"mounted", "composite"}:
+        attribute = MATRIX_SOURCE_ATTR if case == "mounted" else "composite"
+        zarr.open_group(store=store, mode="w", attributes={attribute: {}})
     else:
         workspace = "ws" if case == "workspace" else None
         _import(store, workspace=workspace)
@@ -116,6 +117,7 @@ def test_overwrite_never_replaces_a_prepared_store(case) -> None:
         "root": "holds the prepared assays ['RNA']",
         "workspace": "holds the prepared assays ['ws/RNA']",
         "mounted": f"records a {MATRIX_SOURCE_ATTR}",
+        "composite": "records a composite, which cannot be overwritten",
     }[case]
     with pytest.raises(FileExistsError, match=re.escape(reason)) as raised:
         create_destination(store, overwrite=True)

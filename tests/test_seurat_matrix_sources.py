@@ -65,6 +65,87 @@ from cytearc.readers._seurat.paths import (
 )
 
 
+def test_bpcells_numeric_read_detects_truncation_after_size_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cytearc.readers._seurat.bpcells import _DirectoryArrayStore
+
+    (tmp_path / "version").write_text("unpacked-uint-matrix-v1\n")
+    _write_numeric_file(tmp_path, "values", np.array([1, 2], dtype=np.uint32))
+    store = _DirectoryArrayStore(tmp_path, SourceLimits())
+    numeric_info = store.numeric_info
+
+    def truncate_after_stat(name):
+        info = numeric_info(name)
+        with (tmp_path / name).open("r+b") as handle:
+            handle.truncate(8)
+        return info
+
+    monkeypatch.setattr(store, "numeric_info", truncate_after_stat)
+    with pytest.raises(
+        MatrixSourceError, match="^short read from BPCells numeric array 'values'$"
+    ):
+        store.read_numeric("values")
+    assert (tmp_path / "values").stat().st_size == 8
+
+
+@pytest.mark.parametrize(
+    ("retained_rows", "message"),
+    [
+        (0, "^fragment chromosome 0 ended unexpectedly$"),
+        (127, "^BPCells end_max has an invalid length$"),
+    ],
+)
+def test_fragment_validation_detects_hdf5_arrays_shrinking_during_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    retained_rows: int,
+    message: str,
+) -> None:
+    from cytearc.readers._seurat.bpcells import _HDF5ArrayStore
+    from cytearc.readers._seurat.fragments import StoredFragmentSource
+
+    path = tmp_path / "fragments.h5"
+    _write_fragment_hdf5(
+        path,
+        {
+            "version": "unpacked-fragments-v2",
+            "chr_names": ["chr1"],
+            "cell_names": ["c1"],
+            "chr_ptr": np.array([0, 128], dtype=np.uint64),
+            "end_max": np.array([128], dtype=np.uint32),
+            "cell": np.zeros(128, dtype=np.uint32),
+            "start": np.arange(128, dtype=np.uint32),
+            "end": np.arange(1, 129, dtype=np.uint32),
+        },
+        version=2,
+    )
+    store = _HDF5ArrayStore(path, "fragments", SourceLimits())
+    numeric_info = store.numeric_info
+    calls: dict[str, int] = {}
+
+    def truncate_after_validation(name):
+        info = numeric_info(name)
+        calls[name] = calls.get(name, 0) + 1
+        if name in {"cell", "start", "end"} and calls[name] == 2:
+            with h5py.File(path, "a") as handle:
+                group = handle["fragments"]
+                values = group[name][:retained_rows]
+                del group[name]
+                group.create_dataset(name, data=values)
+        return info
+
+    monkeypatch.setattr(store, "numeric_info", truncate_after_validation)
+    with pytest.raises(MatrixSourceError, match=message):
+        StoredFragmentSource(store, object_path="$", class_name="FragmentsHDF5")
+    with h5py.File(path, "r") as handle:
+        assert all(
+            handle[f"fragments/{name}"].shape == (retained_rows,)
+            for name in ("cell", "start", "end")
+        )
+
+
 _HEADERS = {
     ("u", 4): b"UINT32v1",
     ("u", 8): b"UINT64v1",
@@ -1702,6 +1783,27 @@ def _fragment_matrix(
     if matrix_type == "TileMatrix":
         specification["tileWidths"] = [range_[3] for range_ in ranges]
     return build_matrix_operation(specification)
+
+
+@pytest.mark.parametrize("matrix_type", ["PeakMatrix", "TileMatrix"])
+def test_fragment_contribution_windows_skip_other_cells(matrix_type: str) -> None:
+    fragments = _RecordFragments(
+        [(0, 0, 1, 4), (0, 1, 2, 5), (0, 2, 3, 6)],
+        ["chr1"],
+        ["a", "b", "c"],
+        block_records=1,
+    )
+    source = _fragment_matrix(
+        fragments,
+        [(0, 0, 10, 10)],
+        matrix_type=matrix_type,
+        mode="fragments",
+        transpose=True,
+    )
+    assert isinstance(source, FragmentDerivedMatrixSource)
+    assert list(source._contributions(1, 2)) == [(0, 0, 1)]
+    assert list(source._contributions(2, 2)) == []
+    np.testing.assert_array_equal(source.read_cells(0, 3).toarray(), [[1], [1], [1]])
 
 
 @pytest.mark.parametrize("transpose", [True, False])
@@ -5709,6 +5811,33 @@ def test_fragment_directories_read_their_names_and_validate_slots(
                 {"class": ["FragmentsDir", "IterableFragments"], "slots": slots},
                 sidecar_root=root,
             )
+
+
+def test_fragment_read_wraps_coordinate_overflow() -> None:
+    from cytearc.readers._seurat.fragments import ShiftedFragmentSource
+    from cytearc.readers._seurat.sources import release_temporary_storage
+
+    base = fragment_source_from_slots(_memory_fragments())
+    source = build_matrix_operation(
+        {
+            "operation": "fragment-derived",
+            "matrixType": "PeakMatrix",
+            "fragments": ShiftedFragmentSource(base, 2**63, 0),
+            "chrId": [0],
+            "start": [0],
+            "end": [10],
+            "chrLevels": list(base.chromosomeNames),
+            "mode": "insertions",
+        }
+    )
+    try:
+        with pytest.raises(
+            MatrixSourceError, match="^fragment-derived count overflows uint32$"
+        ) as caught:
+            source.read_cells(0, 1)
+        assert isinstance(caught.value.__cause__, OverflowError)
+    finally:
+        release_temporary_storage(source)
 
 
 def test_fragment_derived_builder_validates_its_specification() -> None:

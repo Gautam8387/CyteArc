@@ -538,3 +538,49 @@ def test_find_imported_embedding_does_not_overwrite_an_explicit_source_key(
 ):
     with pytest.raises(ValueError, match="Use imported= to select"):
         store.artifacts.find("embedding", imported="X_umap", dimreduc_key=dimreduc_key)
+
+
+@pytest.mark.parametrize(
+    ("result", "filters", "error", "message"),
+    [
+        (None, {}, TypeError, "result must be a string"),
+        ("unknown", {}, ValueError, "result must be 'embedding'"),
+        ("embedding", {"method": 1}, TypeError, "method must be a string"),
+        ("embedding", {"method": "pca"}, ValueError, "use 'umap', 'tsne'"),
+        ("embedding", {"from_assay": 1}, TypeError, "from_assay must be a string"),
+        ("embedding", {"graph": "graph"}, TypeError, "graph must be an ArtifactRef"),
+        (
+            "embedding",
+            {"graph": ArtifactRef("assay", "embedding", "a" * 64, assay="RNA")},
+            ValueError,
+            "graph must reference a connectivity_map or integrated_graph",
+        ),
+        (
+            "graph",
+            {"graph": ArtifactRef("assay", "connectivity_map", "a" * 64, assay="RNA")},
+            ValueError,
+            "graph= is only supported for embeddings and clusters",
+        ),
+        (
+            "embedding",
+            {
+                "from_assay": "ADT",
+                "graph": ArtifactRef(
+                    "assay", "connectivity_map", "a" * 64, assay="RNA"
+                ),
+            },
+            ValueError,
+            "from_assay does not match the graph's assay scope",
+        ),
+    ],
+)
+def test_find_rejects_invalid_selectors_without_changing_results(
+    store, result, filters, error, message
+):
+    expected = _record(store)
+
+    with pytest.raises(error, match=message):
+        store.artifacts.find(result, **filters)
+
+    assert store.artifacts.list(kind="embedding") == [expected]
+    assert store.artifacts.find("embedding") == expected

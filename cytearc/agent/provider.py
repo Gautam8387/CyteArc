@@ -277,8 +277,6 @@ def _read_response(
 ) -> dict[str, Any] | None:
     try:
         return cast(dict[str, Any], records.read_json(request["responsePath"]))
-    except FileNotFoundError:
-        return None
     except RecordError as exc:
         if isinstance(exc.__cause__, FileNotFoundError):
             return None

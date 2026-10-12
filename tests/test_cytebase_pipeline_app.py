@@ -1138,6 +1138,46 @@ def test_peak_memory_includes_child_processes():
         child.wait()
 
 
+def test_peak_memory_reports_unavailable_when_proc_cannot_be_read(monkeypatch):
+    visited = []
+
+    def unreadable(path):
+        visited.append(path)
+        raise PermissionError("process table access denied")
+
+    monkeypatch.setattr(app.os, "scandir", unreadable)
+    with app._peak_memory(interval=1000) as peak:
+        pass
+    assert peak() is None
+    assert visited == ["/proc"]
+
+
+def test_process_run_records_tier_lookup_failure_without_starting_worker(
+    modal_harness, monkeypatch
+):
+    hub = modal_harness.hub
+    _register(hub)
+    load = app.load_record
+
+    def inaccessible_record(storage, key):
+        if threading.current_thread() is not threading.main_thread():
+            raise PermissionError("dataset metadata read denied")
+        return load(storage, key)
+
+    monkeypatch.setattr(app, "load_record", inaccessible_record)
+    result = modal_harness.run("process", {"cytebaseIds": [CYTEBASE_ID]}, run_id=RUN_ID)
+    assert result["datasets"] == [
+        {
+            "cytebaseId": CYTEBASE_ID,
+            "outcome": "failed",
+            "message": "PermissionError: dataset metadata read denied",
+        }
+    ]
+    assert result["failures"] == [CYTEBASE_ID]
+    assert modal_harness.process_dataset.spawned == []
+    assert hub.read_json(RECORD_PATH)["status"] == "registered"
+
+
 @pytest.mark.parametrize(
     ("outcome", "error"),
     [

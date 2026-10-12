@@ -410,18 +410,16 @@ def _decompressor(
         return cast(BinaryStream, bz2.BZ2File(cast(Any, source), mode="rb"))
     if compression is RdsCompression.XZ:
         return cast(BinaryStream, io.BufferedReader(_XzReader(source)))
-    if compression is RdsCompression.ZSTD:
-        import zstandard
+    import zstandard
 
-        return cast(
-            BinaryStream,
-            zstandard.ZstdDecompressor().stream_reader(
-                cast(Any, source),
-                read_across_frames=True,
-                closefd=False,
-            ),
-        )
-    raise AssertionError(f"no decompressor for {compression}")
+    return cast(
+        BinaryStream,
+        zstandard.ZstdDecompressor().stream_reader(
+            cast(Any, source),
+            read_across_frames=True,
+            closefd=False,
+        ),
+    )
 
 
 def prepare_payload(

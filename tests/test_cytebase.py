@@ -212,6 +212,13 @@ def test_repository_file_listing_is_scoped_and_sorted(monkeypatch):
         "cytearc_docs/alpha/matrix.mtx.gz",
     ]
     assert calls == [("Nygen/cytebase", "cytearc_docs/alpha", False, False)]
+    files = cytebase._bucket_files("cytearc_docs", recursive=True)
+    assert [file.path for file in files] == [
+        "cytearc_docs/alpha/barcodes.tsv.gz",
+        "cytearc_docs/alpha/matrix.mtx.gz",
+        "cytearc_docs/alphabet/other.bin",
+    ]
+    assert calls[-1] == ("Nygen/cytebase", "cytearc_docs", True, False)
 
 
 def test_repository_downloads_file_anonymously(monkeypatch, tmp_path):

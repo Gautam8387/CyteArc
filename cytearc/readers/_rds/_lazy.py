@@ -169,9 +169,7 @@ class LazyStringVector(LazyVector, Sequence[str | bytes | None]):
         )
         return _STRING_DESCRIPTOR.unpack(data)
 
-    def _decode(self, raw: bytes | None, gp: int) -> str | bytes | None:
-        if raw is None:
-            return None
+    def _decode(self, raw: bytes, gp: int) -> str | bytes:
         return decode_r_string(raw, gp, self.default_encoding)
 
     def read_block(self, start: int, stop: int) -> list[str | bytes | None]:

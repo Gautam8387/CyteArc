@@ -1580,17 +1580,15 @@ def build_matrix_operation(
             axis=str(specification.get("axis", "column")),
             limits=limits,
         )
-    if operation == MatrixOperation.MULTIPLY:
-        right = specification.get("right")
-        if right is not None and not isinstance(right, MatrixSource):
-            raise TypeError(
-                "matrix multiplication right operand must implement MatrixSource"
-            )
-        return MatrixMultiplySource(
-            primary,
-            right=right,
-            shape=specification.get("shape"),
-            object_path=object_path,
-            limits=limits,
+    right = specification.get("right")
+    if right is not None and not isinstance(right, MatrixSource):
+        raise TypeError(
+            "matrix multiplication right operand must implement MatrixSource"
         )
-    raise AssertionError(f"unhandled matrix operation {operation}")
+    return MatrixMultiplySource(
+        primary,
+        right=right,
+        shape=specification.get("shape"),
+        object_path=object_path,
+        limits=limits,
+    )

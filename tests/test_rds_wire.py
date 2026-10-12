@@ -1522,6 +1522,71 @@ def test_wire_reader_rejects_negative_sizes_and_unknown_native_order() -> None:
         RdsFormatError, match=r"^native binary byte order is unknown at \$ \(byte 0\)$"
     ):
         native.read_int(path="$")
+    with pytest.raises(
+        RdsFormatError, match=r"^native binary byte order is unknown at \$ \(byte 0\)$"
+    ):
+        native.read_real(path="$")
+
+
+@pytest.mark.parametrize(
+    ("encoding", "byte_order"),
+    [(RdsEncoding.XDR, ">"), (RdsEncoding.NATIVE, "<"), (RdsEncoding.NATIVE, ">")],
+)
+def test_binary_wire_reals_preserve_values_and_offsets(encoding, byte_order) -> None:
+    from cytearc.readers._rds._parser import _WireReader
+
+    values = [-3.25, 0.0, np.inf, np.nan]
+    storage = RandomAccessStorage(
+        io.BytesIO(struct.pack(f"{byte_order}4d", *values)),
+        name="real-vector",
+        close_file=True,
+    )
+    reader = _WireReader(storage, position=0, encoding=encoding, byte_order=byte_order)
+    try:
+        actual = [reader.read_real(path=f"$[{index}]") for index in range(4)]
+        np.testing.assert_array_equal(actual, values)
+        assert reader.position == 32
+        with pytest.raises(RdsFormatError, match="unexpected end of stream"):
+            reader.read_real(path="$[4]")
+    finally:
+        storage.close()
+
+
+def test_payload_allocation_failure_restores_a_borrowed_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import cytearc.readers._rds._storage as storage_module
+
+    wire = Wire()
+    payload = wire.document(wire.integer_vector([1, 2]))
+    stream = io.BytesIO(b"prefix" + payload)
+    stream.seek(6)
+
+    def fail_metadata(**kwargs):
+        raise MemoryError("metadata allocation failed")
+
+    monkeypatch.setattr(storage_module, "RdsSourceMetadata", fail_metadata)
+    with pytest.raises(MemoryError, match="^metadata allocation failed$"):
+        storage_module.prepare_payload(stream, RdsLimits(), temp_dir=tmp_path)
+
+    assert not stream.closed
+    assert stream.tell() == 6
+    assert stream.read() == payload
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_input_stream_must_report_its_size_after_seeking() -> None:
+    class _UnknownSize(io.BytesIO):
+        def seek(self, offset, whence=0):
+            position = super().seek(offset, whence)
+            return None if whence == io.SEEK_END else position
+
+    stream = _UnknownSize(b"prefixX\n")
+    stream.seek(6)
+    with pytest.raises(AssertionError, match="^seekable input size was not recorded$"):
+        open_rds(stream)
+    assert not stream.closed
+    assert stream.tell() == 6
 
 
 @pytest.mark.parametrize(

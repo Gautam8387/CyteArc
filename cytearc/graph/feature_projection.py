@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
 import zarr
 
@@ -236,12 +237,6 @@ def resolve_coordinate_inputs(
         # float32 data holds one row per selected cell and one column per
         # selected feature.
         _, normalized_selections = load_normalized_inputs(root, coordinates)
-        if not normalized_selections.featureMask.any():
-            raise _resolution_error(
-                "Coordinates must be a non-empty two-dimensional array",
-                code="invalid_shape",
-                ref=coordinates,
-            )
         return CoordinateInputs(
             coordinates=coordinates,
             reduction=None,
@@ -391,14 +386,7 @@ def _resolve_native_graph_inputs(
             ref=source,
             expected_kind="connectivity_map,neighbors",
         )
-    if neighbors.assay is None:
-        raise _resolution_error(
-            "Native graph source has no assay",
-            code="wrong_scope",
-            ref=neighbors,
-            expected_scope="assay",
-        )
-    assay = neighbors.assay
+    assay = cast(str, neighbors.assay)
     ann_index = _input_ref(
         root,
         neighbors,
@@ -618,29 +606,13 @@ def graph_source_assays(
     """Return validated source-assay names in persisted graph order."""
     if graph.kind in {"connectivity_map", "neighbors"}:
         ancestry = resolve_native_graph_inputs(root, graph)
-        assay = ancestry.neighbors.assay
-        if assay is None:
-            raise _resolution_error(
-                "Native graph source has no assay",
-                code="wrong_scope",
-                ref=graph,
-                expected_scope="assay",
-            )
-        return (assay,)
+        return (cast(str, ancestry.neighbors.assay),)
     if graph.kind == "integrated_graph":
         _status, sources = _integrated_sources(root, graph)
         assays: list[str] = []
         for source in sources:
             ancestry = resolve_native_graph_inputs(root, source)
-            assay = ancestry.neighbors.assay
-            if assay is None:
-                raise _resolution_error(
-                    "Integrated graph source has no assay",
-                    code="wrong_scope",
-                    ref=source,
-                    expected_scope="assay",
-                )
-            assays.append(assay)
+            assays.append(cast(str, ancestry.neighbors.assay))
         return tuple(assays)
     raise _resolution_error(
         "Graph must be connectivity_map, neighbors, or integrated_graph",
@@ -717,13 +689,6 @@ def resolve_graph_assay_inputs(
         raise _resolution_error(
             f"Integrated graph has no source for assay {assay!r}",
             code="wrong_assay",
-            ref=graph,
-            expected_assay=assay,
-        )
-    if len(matches) != 1:
-        raise _resolution_error(
-            f"Integrated graph has multiple sources for assay {assay!r}",
-            code="corrupt_payload",
             ref=graph,
             expected_assay=assay,
         )

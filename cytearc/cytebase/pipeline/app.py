@@ -287,8 +287,6 @@ def _owner(run_id: str, key: str, call_id: str | None) -> None:
         or child.get("callId") not in {None, call_id}
     ):
         raise RuntimeError("This worker no longer owns the current pipeline stage")
-    if not child:
-        raise RuntimeError("Pipeline has no reservation for this worker")
 
 
 @contextmanager

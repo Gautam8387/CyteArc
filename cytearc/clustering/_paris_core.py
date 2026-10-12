@@ -575,7 +575,6 @@ def fit_paris_hierarchy(
     finally:
         set_num_threads(previous_threads)
 
-    finite_merge_count = sum(block.shape[0] for block in child_blocks)
     synthetic_count = n_components - 1
     index_dtype = np.int32 if 2 * n_leaves - 1 <= np.iinfo(np.int32).max else np.int64
     children = np.empty((n_leaves - 1, 2), dtype=index_dtype)
@@ -596,8 +595,6 @@ def fit_paris_hierarchy(
         heights[offset : offset + block_size] = height_block
         sizes[offset : offset + block_size] = size_block
         offset += block_size
-    if offset != finite_merge_count:
-        raise RuntimeError("Paris hierarchy assembly failed")
     # Paris distances are reducible, so exact heights never decrease toward the
     # root. Rounding can leave a merge a few ulps below a tied child merge.
     _raise_to_child_heights(children[:offset], heights[:offset], n_leaves)

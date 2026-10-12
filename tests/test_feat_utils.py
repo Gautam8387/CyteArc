@@ -654,3 +654,16 @@ def test_feature_mapping_rejects_empty_feature_table():
 
     with pytest.raises(ValueError, match="None of the features were found"):
         get_feature_mappings(peaks, features)
+
+
+def test_feature_mapping_rejects_ids_that_collide_after_text_conversion():
+    peaks = create_bed_from_coord_ids(["chr1:100-200"])
+    features = pd.DataFrame(
+        [
+            ("chr1", 110, 120, 1, "First", "+"),
+            ("chr1", 130, 140, "1", "Second", "+"),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="feature ids are not unique"):
+        get_feature_mappings(peaks, features)

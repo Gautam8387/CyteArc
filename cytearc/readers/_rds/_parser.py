@@ -4,6 +4,7 @@ import struct
 import sys
 from dataclasses import dataclass, field
 from types import FrameType
+from typing import cast
 
 from ._lazy import (
     STRING_SOURCE_DECODED,
@@ -698,7 +699,7 @@ class _Parser:
         The cells after the first share one depth, so a long pairlist is
         bounded by ``max_objects`` rather than by the nesting limit.
         """
-        head: RNode | None = None
+        head: RNode
         previous: tuple[RNode, RNode] | None = None
         cell_info, cell_path, cell_depth, cell_offset = info, path, depth, offset
         index = 0
@@ -741,8 +742,6 @@ class _Parser:
                     (flags, cdr_info, cdr_offset),
                 )
                 cell.value = self._pair_value(cell, car, cdr)
-                if head is None:
-                    raise AssertionError("pairlist chain lost its head")
                 return head
             cell_info, cell_path, cell_depth, cell_offset = (
                 cdr_info,
@@ -833,14 +832,12 @@ class _Parser:
                 if self.reader.encoding is RdsEncoding.XDR
                 else self.metadata.byte_order
             )
-            if byte_order is None:
-                raise AssertionError("native byte order was not initialized")
             return LazyAtomicVector(
                 self.storage,
                 offset=offset,
                 length=length,
                 r_type=r_type,
-                byte_order=byte_order,
+                byte_order=cast(str, byte_order),
                 path=path,
             )
 
@@ -1043,7 +1040,7 @@ class _Parser:
         depth: int,
     ) -> RNode:
         """Parse one bytecode constant, following CDR cells iteratively."""
-        head: RNode | None = None
+        head: RNode
         pending: tuple[RNode, RNode] | None = None
         cell_path = path
         cell_depth = depth
@@ -1081,8 +1078,6 @@ class _Parser:
             if pending is None:
                 return result
             pending[0].value = PairValue(pending[1], result)
-            if head is None:
-                raise AssertionError("bytecode pair chain lost its head")
             return head
 
     def _bytecode_reference(
